@@ -43,7 +43,30 @@ export function normalize(m, typeHint) {
     description: m.description || '',
     tmdbId: m.moviedb_id || null,
     runtime: m.runtime || '',
+    released: m.released || null,
+    country: m.country || '',
+    awards: m.awards || '',
+    trailer: trailerOf(m),
+    ...(m.videos ? episodeDates(m.videos) : {}),
   };
+}
+
+/** YouTube id of the main trailer, if any. */
+export function trailerOf(m) {
+  return m?.trailers?.find((t) => t.type === 'Trailer')?.source || m?.trailers?.[0]?.source || m?.trailerStreams?.[0]?.ytId || null;
+}
+
+/** For series: next upcoming episode and the season premiere it belongs to. */
+function episodeDates(videos) {
+  const now = Date.now();
+  let next = null;
+  for (const v of videos) {
+    const t = Date.parse(v.released || v.firstAired);
+    const s = Number(v.season);
+    if (!t || t <= now || !s) continue;
+    if (!next || t < next.t) next = { t, season: s, episode: Number(v.episode ?? v.number) };
+  }
+  return next ? { nextEp: { date: new Date(next.t).toISOString(), season: next.season, episode: next.episode } } : {};
 }
 
 function extrasPath(extra) {
@@ -104,10 +127,103 @@ export function seasonsOf(m) {
 export const MOVIE_GENRES = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Mystery', 'Romance', 'Sci-Fi', 'Sport', 'Thriller', 'War', 'Western'];
 export const TV_GENRES = [...MOVIE_GENRES, 'Reality-TV', 'Talk-Show', 'Game-Show'];
 
-const THIS_YEAR = new Date().getFullYear();
+export const THIS_YEAR = new Date().getFullYear();
 export const YEARS = Array.from({ length: 30 }, (_, i) => String(THIS_YEAR - i));
 
 // ---------- ids ----------
 
 /** True for a bare TMDB numeric id (e.g. from /watch/movie/1078605). */
 export const isTmdbId = (id) => /^\d+$/.test(String(id));
+
+// ---------- multi-page helpers ----------
+
+/** Fetch several 50-item pages of one catalog in parallel and dedupe. */
+export async function catalogPages(type, opts = {}, pages = 2) {
+  const res = await Promise.all(
+    Array.from({ length: pages }, (_, i) => catalog(type, { ...opts, skip: (opts.skip || 0) + i * 50 }).catch(() => []))
+  );
+  const seen = new Set();
+  return res.flat().filter((x) => !seen.has(x.id) && seen.add(x.id));
+}
+
+const dayStart = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+/**
+ * Upcoming releases: movies and new series dated after today (from the
+ * current-year catalogs), plus season premieres of popular shows.
+ * Returns [{ ...item, date, kind: 'movie'|'series'|'season', season? }] sorted by date.
+ */
+export async function comingSoon() {
+  const today = dayStart();
+  const year = String(THIS_YEAR);
+  const [movies, series, popular] = await Promise.all([
+    catalogPages('movie', { list: 'year', genre: year }, 5),
+    catalogPages('tv', { list: 'year', genre: year }, 3),
+    catalogPages('tv', { list: 'top' }, 3),
+  ]);
+  const out = [];
+  const seen = new Set();
+  const push = (x) => !seen.has(x.id) && seen.add(x.id) && out.push(x);
+  for (const m of movies) {
+    const t = Date.parse(m.released);
+    if (t && t >= today) push({ ...m, date: m.released, kind: 'movie' });
+  }
+  for (const s of series) {
+    const t = Date.parse(s.released);
+    if (t && t >= today) push({ ...s, date: s.released, kind: 'series' });
+    else if (s.nextEp?.episode === 1) push({ ...s, date: s.nextEp.date, kind: 'season', season: s.nextEp.season });
+  }
+  for (const s of popular) {
+    if (s.nextEp?.episode === 1) push({ ...s, date: s.nextEp.date, kind: 'season', season: s.nextEp.season });
+  }
+  out.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  // Announced for this year but no date yet (no rating = not out).
+  const tba = movies.filter((m) => !m.released && !m.rating && m.background && !seen.has(m.id)).slice(0, 8);
+  return [...out, ...tba.map((m) => ({ ...m, date: null, kind: 'movie' }))];
+}
+
+/** Movies released in the last `days` days, newest first. */
+export async function newReleases(days = 75) {
+  const now = Date.now();
+  const from = now - days * 864e5;
+  const [a, b] = await Promise.all([
+    catalogPages('movie', { list: 'year', genre: String(THIS_YEAR) }, 4),
+    catalogPages('movie', { list: 'year', genre: String(THIS_YEAR - 1) }, 1),
+  ]);
+  return [...a, ...b]
+    .filter((m) => {
+      const t = Date.parse(m.released);
+      return t && t <= now && t >= from;
+    })
+    .sort((x, y) => Date.parse(y.released) - Date.parse(x.released));
+}
+
+/** True if a title hasn't been released yet. */
+export const isUpcoming = (it) => {
+  const d = it?.date || it?.released;
+  if (it?.kind === 'season') return Date.parse(it.date) > Date.now();
+  return d ? Date.parse(d) > Date.now() : it?.kind === 'movie' && it?.date === null;
+};
+
+/** "Dec 18", "Friday", "Tomorrow", "Today" */
+export function releaseLabel(date) {
+  if (!date) return 'Coming soon';
+  const t = new Date(date);
+  const days = Math.round((new Date(t).setHours(0, 0, 0, 0) - dayStart()) / 864e5);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  if (days < 7) return t.toLocaleDateString(undefined, { weekday: 'long' });
+  return t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Netflix-style "97% Match" from the IMDb rating (+ a bump for liked genres). */
+export function matchScore(item, likedGenres) {
+  if (!item?.rating) return null;
+  let s = Math.round(38 + item.rating * 7);
+  if (likedGenres && item.genres?.some((g) => likedGenres.has(g))) s += 4;
+  return Math.max(55, Math.min(99, s));
+}

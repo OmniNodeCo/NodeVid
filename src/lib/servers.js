@@ -67,7 +67,7 @@ export const SERVERS = [
     url({ type, imdbId, tmdbId, season, episode, progress, settings }, origin = this.origins[0]) {
       const id = tmdbId || imdbId;
       const qs = new URLSearchParams();
-      qs.set('color', (settings.color || '8b6cff').replace('#', ''));
+      qs.set('color', (settings.color || 'e50914').replace('#', ''));
       if (settings.autoPlay) qs.set('autoPlay', 'true');
       if (type === 'tv') {
         if (settings.nextEpisode) qs.set('nextEpisode', 'true');

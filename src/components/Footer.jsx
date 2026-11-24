@@ -12,8 +12,11 @@ export default function Footer() {
         <nav>
           <Link to="/movies">Movies</Link>
           <Link to="/tv">TV Shows</Link>
+          <Link to="/new">New &amp; Popular</Link>
+          <Link to="/categories">Categories</Link>
           <Link to="/animation">Animation</Link>
           <Link to="/list">My List</Link>
+          <Link to="/profiles">Profiles</Link>
           <Link to="/settings">Settings</Link>
         </nav>
       </div>

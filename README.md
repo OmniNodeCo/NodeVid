@@ -1,6 +1,6 @@
 # NodeVid
 
-A Cineby-style streaming site for movies, TV shows and animation. Playback comes from multiple embed servers you can switch between.
+A Netflix-style streaming site for movies, TV shows and animation. Playback comes from multiple embed servers you can switch between.
 
 **You don't need an API key.** The catalog (posters, descriptions, episode lists) comes from the public [Cinemeta](https://v3-cinemeta.strem.io/manifest.json) API. Cinemeta gives every title's TMDB id, which is the id Vidking needs:
 
@@ -41,6 +41,23 @@ When you open a title or episode, NodeVid checks the servers and uses your prefe
 - Settings has two toggles, **Auto-switch servers** and **Require 1080p**. Both are on by default.
 - Limitations: Vidking has no availability or quality API, so for Vidking only reachability is checked, plus the 20 s player watchdog. Its quality counts as "unknown", which ranks just below 1080p. Browsers can only tell if a domain is reachable, so a server that's online but serving an error page is only caught by the player watchdog.
 
+## Netflix-style features
+
+- **Profiles ("Who's watching?")**: up to 5 profiles per browser. Each one has its own avatar, My List, watch history, ratings and reminders. A **Kids** profile only sees family-friendly rows. The picker appears once per session when there's more than one profile. Manage profiles from the avatar menu or `/profiles/manage`.
+- **Billboard with trailer**: the home hero shows the top titles with a "#1 in Movies Today" badge. After a few seconds the backdrop turns into the muted YouTube trailer, with mute/unmute and replay buttons. It pauses when scrolled away. Title pages do the same. You can turn this off with **Settings → Autoplay previews**.
+- **Hover previews**: on desktop, resting on a poster pops up a larger card with backdrop, logo, **Play**, **My List**, 👎 👍 ❤️ ratings, "97% Match", genres and a synopsis.
+- **Top 10 rows** with giant numbers: Top 10 Movies Today and Top 10 TV Shows Today.
+- **New & Popular** (`/new`): **Coming Soon** (dated list with **Remind Me**), New Releases, Everyone's Watching, Top 10 TV / Movies and New Episodes.
+- **Coming Soon**: movies and new series from the current year's catalog with a future release date, plus season premieres of popular shows, sorted by date. Undated announced titles are listed last as "TBA". Upcoming titles show **Remind Me** instead of Play everywhere.
+- **Notifications bell**: tells you when a reminded title comes out, and when a show in your list or history gets a new episode (from VidSrc's latest-episodes feed). It shows an unread count.
+- **Ratings & recommendations**: 👍/❤️/👎 on any title. Liked genres bump the Match score, and the home page adds **"Because you liked / watched …"** rows.
+- **More categories**: about 60 curated collections in `src/lib/categories.js`, browsable at `/categories` and `/category/:id`, for example:
+  - genres: Romantic Comedies, Action & Sci-Fi Blockbusters, Crime TV, Docuseries, Reality TV, Talk & Game Shows
+  - Anime, K-Dramas, British TV, Spanish-language TV, Indian, French, Korean and Japanese movies (filtered by country)
+  - Award-Winning Movies, Emmy-Winning Series (from the awards field)
+  - decades: 70s through 2010s
+- Netflix look: black and red theme, wordmark logo, square-ish buttons, and a mobile "New & Hot" tab with TV / Movies / Categories chips.
+
 ## Features
 
 - **Home page** with a rotating hero banner and lazy-loaded rows: popular, new this year, top rated, plus genre rows
@@ -59,6 +76,9 @@ When you open a title or episode, NodeVid checks the servers and uses your prefe
 | `/movie/:imdbId`, `/tv/:imdbId` | Details page (e.g. `/tv/tt0903747`) |
 | `/watch/movie/:id` | Player. `id` is an IMDb id (resolved to TMDB) or a raw TMDB id (e.g. `/watch/movie/1078605`) |
 | `/watch/tv/:id/:season/:episode` | Episode player (e.g. `/watch/tv/1396/1/1`) |
+| `/new` | New & Popular (`?tab=coming|new|watching|top-tv|top-movies|episodes`) |
+| `/categories`, `/category/:id` | All categories, and one category (e.g. `/category/k-drama`) |
+| `/profiles`, `/profiles/manage` | Profile picker / editor |
 
 ## Run locally
 

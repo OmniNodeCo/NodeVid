@@ -108,3 +108,82 @@ export const ChevronDown = (p) => (
     <path d="m6 9 6 6 6-6" />
   </svg>
 );
+export const Bell = (p) => (
+  <svg {...base} {...p}>
+    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+  </svg>
+);
+export const BellFill = (p) => (
+  <svg {...base} {...p} fill="currentColor">
+    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" fill="none" />
+  </svg>
+);
+export const ThumbUp = (p) => (
+  <svg {...base} {...p}>
+    <path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3zM7 10l4-8a3 3 0 0 1 3 3v4h5.5a2 2 0 0 1 2 2.3l-1.4 8A2 2 0 0 1 18.1 21H7" />
+  </svg>
+);
+export const ThumbDown = (p) => (
+  <svg {...base} {...p}>
+    <path d="M17 14V3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-3zM17 14l-4 8a3 3 0 0 1-3-3v-4H4.5a2 2 0 0 1-2-2.3l1.4-8A2 2 0 0 1 5.9 3H17" />
+  </svg>
+);
+export const Heart = (p) => (
+  <svg {...base} {...p}>
+    <path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z" />
+  </svg>
+);
+export const Volume = (p) => (
+  <svg {...base} {...p}>
+    <path d="M11 5 6 9H2v6h4l5 4z" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
+  </svg>
+);
+export const VolumeX = (p) => (
+  <svg {...base} {...p}>
+    <path d="M11 5 6 9H2v6h4l5 4z" />
+    <path d="m22 9-6 6M16 9l6 6" />
+  </svg>
+);
+export const Replay = (p) => (
+  <svg {...base} {...p}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5" />
+  </svg>
+);
+export const Grid = (p) => (
+  <svg {...base} {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+export const Flame = (p) => (
+  <svg {...base} {...p}>
+    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3.3.3 1.6 1.4 2.8 2.5 2.8z" />
+  </svg>
+);
+export const Pencil = (p) => (
+  <svg {...base} {...p}>
+    <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
+  </svg>
+);
+export const LogOut = (p) => (
+  <svg {...base} {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+  </svg>
+);
+export const Calendar = (p) => (
+  <svg {...base} {...p}>
+    <rect x="3" y="4" width="18" height="18" rx="2" />
+    <path d="M16 2v4M8 2v4M3 10h18" />
+  </svg>
+);
+export const ChevronUp = (p) => (
+  <svg {...base} {...p}>
+    <path d="m18 15-6-6-6 6" />
+  </svg>
+);

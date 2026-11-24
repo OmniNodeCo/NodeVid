@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { isTmdbId, meta, normalize, seasonsOf, sized } from '../lib/catalog.js';
+import { isTmdbId, isUpcoming, matchScore, meta, normalize, releaseLabel, seasonsOf, sized } from '../lib/catalog.js';
 import { vidsrcInfo } from '../lib/servers.js';
-import { inList, progressKey, toggleList, useList, useProgress } from '../lib/store.js';
+import { inList, likedGenres, progressKey, toggleList, useList, useProgress, useRatings, useSettings } from '../lib/store.js';
+import { RateButtons, RemindButton } from '../components/Preview.jsx';
 import Row from '../components/Row.jsx';
 import Img from '../components/Img.jsx';
-import { TitleLogo } from '../components/Hero.jsx';
+import { TitleLogo, TrailerBackdrop } from '../components/Hero.jsx';
 import * as I from '../components/Icons.jsx';
 
 function TrailerModal({ ytId, onClose }) {
@@ -123,6 +124,10 @@ export default function Details({ type }) {
   const [error, setError] = useState(null);
   const [trailer, setTrailer] = useState(false);
   const [vs, setVs] = useState(null);
+  const [bgTrailer, setBgTrailer] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const settings = useSettings();
+  const ratings = useRatings();
   const list = useList();
   const progress = useProgress();
   const entry = progress[progressKey(type, id)];
@@ -139,8 +144,16 @@ export default function Details({ type }) {
       })
       .catch((e) => setError(e.message));
     setVs(null);
+    setBgTrailer(false);
     vidsrcInfo(type, id).then(setVs);
   }, [type, id]);
+
+  // Netflix-style: the backdrop turns into a muted trailer after a moment.
+  useEffect(() => {
+    if (!m || !settings.previews || window.innerWidth < 700 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const t = setTimeout(() => setBgTrailer(true), 3500);
+    return () => clearTimeout(t);
+  }, [m, settings.previews]);
 
   const item = useMemo(() => (m ? { ...normalize(m, type), id } : null), [m, type, id]);
   const seasons = useMemo(() => (type === 'tv' && m ? seasonsOf(m) : []), [m, type]);
@@ -174,6 +187,9 @@ export default function Details({ type }) {
   const writers = Array.isArray(m.writer) ? m.writer.slice(0, 3).join(', ') : m.writer;
   const cast = m.cast || [];
   const nSeasons = seasons.filter((s) => s.season > 0).length;
+  const upcoming = isUpcoming(item);
+  const match = matchScore(item, likedGenres(ratings));
+  const remindItem = { ...item, date: upcoming ? item.released : item.nextEp?.date, kind: upcoming ? (type === 'tv' ? 'series' : 'movie') : item.nextEp ? 'season' : null, season: item.nextEp?.season };
 
   let playHref, playLabel;
   if (type === 'movie') {
@@ -193,12 +209,21 @@ export default function Details({ type }) {
         <div className="hero-bg active">
           <Img srcs={sized(item.background, 'large')} alt="" />
         </div>
+        {bgTrailer && ytId && !trailer && <TrailerBackdrop ytId={ytId} muted={muted} visible onEnded={() => setBgTrailer(false)} />}
         <div className="hero-shade" />
+        {bgTrailer && ytId && !trailer && (
+          <div className="hero-side">
+            <button className="round-btn round-btn-lg" onClick={() => setMuted((v) => !v)} aria-label={muted ? 'Unmute' : 'Mute'}>
+              {muted ? <I.VolumeX width={20} height={20} /> : <I.Volume width={20} height={20} />}
+            </button>
+          </div>
+        )}
         <div className="details-content">
           <Img className="details-poster" srcs={sized(item.poster, 'medium')} alt={item.title} />
           <div className="details-main">
             <TitleLogo item={item} />
             <div className="meta-line">
+              {upcoming ? <span className="coming">Coming {releaseLabel(item.released)}</span> : match && <span className="match">{match}% Match</span>}
               {item.rating > 0 && (
                 <span className="pill pill-rating">
                   <I.Star width={12} height={12} /> {item.rating.toFixed(1)}
@@ -221,11 +246,23 @@ export default function Details({ type }) {
                 </Link>
               ))}
             </div>
+            {item.nextEp && !upcoming && (
+              <div className="next-ep">
+                <I.Calendar width={16} height={16} />
+                {item.nextEp.episode === 1 ? `Season ${item.nextEp.season} premieres` : `New episode S${item.nextEp.season} E${item.nextEp.episode}`}{' '}
+                {new Date(item.nextEp.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+              </div>
+            )}
             <p className="hero-overview full">{item.description}</p>
             <div className="hero-actions">
-              <Link to={playHref} className="btn btn-primary">
-                <I.Play width={18} height={18} /> {playLabel}
-              </Link>
+              {upcoming ? (
+                <RemindButton item={remindItem} className="btn btn-light" label />
+              ) : (
+                <Link to={playHref} className="btn btn-light">
+                  <I.Play width={20} height={20} /> {playLabel}
+                </Link>
+              )}
+              {!upcoming && item.nextEp && <RemindButton item={remindItem} className="btn btn-glass" label />}
               {ytId && (
                 <button className="btn btn-glass" onClick={() => setTrailer(true)}>
                   <I.Youtube width={18} height={18} /> Trailer
@@ -234,6 +271,7 @@ export default function Details({ type }) {
               <button className="btn btn-glass" onClick={() => toggleList(item, type)}>
                 {saved ? <I.Check width={18} height={18} /> : <I.Plus width={18} height={18} />} {saved ? 'In My List' : 'My List'}
               </button>
+              <RateButtons item={item} />
             </div>
             <dl className="facts">
               {cast.length > 0 && (
@@ -273,6 +311,16 @@ export default function Details({ type }) {
 
       <div className="rows details-rows">
         {type === 'tv' && seasons.length > 0 && <Episodes item={item} seasons={seasons} season={season} setSeason={setSeason} entry={entry} />}
+        {item.genres.length > 1 && (
+          <Row
+            key={`like-${id}`}
+            title="More Like This"
+            type={type}
+            query={{ genre: item.genres[1] }}
+            filter={(x) => x.genres?.includes(item.genres[0])}
+            exclude={id}
+          />
+        )}
         {item.genres[0] && (
           <Row
             key={`g1-${id}`}

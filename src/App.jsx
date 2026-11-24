@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar.jsx';
 import Footer from './components/Footer.jsx';
@@ -10,6 +10,11 @@ import Watch from './pages/Watch.jsx';
 import MyList from './pages/MyList.jsx';
 import Settings from './pages/Settings.jsx';
 import NotFound from './pages/NotFound.jsx';
+import NewPopular from './pages/NewPopular.jsx';
+import Profiles from './pages/Profiles.jsx';
+import { CategoriesIndex, CategoryPage } from './pages/Categories.jsx';
+import { PreviewProvider } from './components/Preview.jsx';
+import { needsProfilePick } from './lib/store.js';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -22,12 +27,16 @@ function ScrollToTop() {
 export default function App() {
   const location = useLocation();
   const watching = location.pathname.startsWith('/watch/');
+  const profilesPage = location.pathname.startsWith('/profiles');
+  const [gate, setGate] = useState(() => needsProfilePick() && !watching);
+
+  if (gate) return <Profiles onPicked={() => setGate(false)} />;
 
   return (
-    <>
+    <PreviewProvider>
       <ScrollToTop />
-      {!watching && <Navbar />}
-      <main className={watching ? '' : 'main'}>
+      {!watching && !profilesPage && <Navbar />}
+      <main className={watching || profilesPage ? '' : 'main'}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/index.html" element={<Navigate to="/" replace />} />
@@ -39,6 +48,12 @@ export default function App() {
           <Route path="/search" element={<Search />} />
           <Route path="/list" element={<MyList />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/new" element={<NewPopular />} />
+          <Route path="/latest" element={<Navigate to="/new" replace />} />
+          <Route path="/categories" element={<CategoriesIndex />} />
+          <Route path="/category/:id" element={<CategoryPage />} />
+          <Route path="/profiles" element={<Profiles key="pick" />} />
+          <Route path="/profiles/manage" element={<Profiles key="manage" manageInitially />} />
           <Route path="/movie/:id" element={<Details type="movie" />} />
           <Route path="/tv/:id" element={<Details type="tv" />} />
           <Route path="/watch/movie/:id" element={<Watch type="movie" />} />
@@ -46,7 +61,7 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      {!watching && <Footer />}
-    </>
+      {!watching && !profilesPage && <Footer />}
+    </PreviewProvider>
   );
 }
