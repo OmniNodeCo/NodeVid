@@ -51,7 +51,7 @@ When you open a title or episode, NodeVid checks the servers and uses your prefe
 - **Coming Soon**: movies and new series from the current year's catalog with a future release date, plus season premieres of popular shows, sorted by date. Undated announced titles are listed last as "TBA". Upcoming titles show **Remind Me** instead of Play everywhere.
 - **Notifications bell**: tells you when a reminded title comes out, and when a show in your list or history gets a new episode (from VidSrc's latest-episodes feed). It shows an unread count.
 - **Ratings & recommendations**: 👍/❤️/👎 on any title. Liked genres bump the Match score, and the home page adds **"Because you liked / watched …"** rows.
-- **More categories**: about 60 curated collections in `src/lib/categories.js`, browsable at `/categories` and `/category/:id`, for example:
+- **More categories**: 65 curated collections in `src/lib/categories.js`, browsable at `/categories` and `/category/:id`, for example:
   - genres: Romantic Comedies, Action & Sci-Fi Blockbusters, Crime TV, Docuseries, Reality TV, Talk & Game Shows
   - Anime, K-Dramas, British TV, Spanish-language TV, Indian, French, Korean and Japanese movies (filtered by country)
   - Award-Winning Movies, Emmy-Winning Series (from the awards field)
