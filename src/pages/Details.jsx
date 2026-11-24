@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { isTmdbId, meta, normalize, seasonsOf, sized } from '../lib/catalog.js';
+import { vidsrcInfo } from '../lib/servers.js';
 import { inList, progressKey, toggleList, useList, useProgress } from '../lib/store.js';
 import Row from '../components/Row.jsx';
 import Img from '../components/Img.jsx';
@@ -121,6 +122,7 @@ export default function Details({ type }) {
   const [m, setM] = useState(null);
   const [error, setError] = useState(null);
   const [trailer, setTrailer] = useState(false);
+  const [vs, setVs] = useState(null);
   const list = useList();
   const progress = useProgress();
   const entry = progress[progressKey(type, id)];
@@ -136,6 +138,8 @@ export default function Details({ type }) {
         document.title = `${data.name} — NodeVid`;
       })
       .catch((e) => setError(e.message));
+    setVs(null);
+    vidsrcInfo(type, id).then(setVs);
   }, [type, id]);
 
   const item = useMemo(() => (m ? { ...normalize(m, type), id } : null), [m, type, id]);
@@ -208,6 +212,7 @@ export default function Details({ type }) {
                 </span>
               )}
               {m.status && type === 'tv' && <span className="dot-sep">{m.status}</span>}
+              {vs?.available && vs.quality && <span className="badge">{vs.quality}</span>}
             </div>
             <div className="genres">
               {item.genres.map((g) => (

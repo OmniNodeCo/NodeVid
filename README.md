@@ -1,6 +1,6 @@
 # NodeVid
 
-A Cineby-style streaming site for movies, TV shows and animation. Playback uses the [Vidking](https://www.vidking.net/) embed player.
+A Cineby-style streaming site for movies, TV shows and animation. Playback comes from multiple embed servers you can switch between.
 
 **You don't need an API key.** The catalog (posters, descriptions, episode lists) comes from the public [Cinemeta](https://v3-cinemeta.strem.io/manifest.json) API. Cinemeta gives every title's TMDB id, which is the id Vidking needs:
 
@@ -8,6 +8,20 @@ A Cineby-style streaming site for movies, TV shows and animation. Playback uses 
 https://www.vidking.net/embed/movie/{tmdbId}
 https://www.vidking.net/embed/tv/{tmdbId}/{season}/{episode}
 ```
+
+## Servers
+
+| # | Server | Embed | IDs | Extras used |
+| --- | --- | --- | --- | --- |
+| 1 | [Vidking](https://www.vidking.net/) | `/embed/movie/{id}`, `/embed/tv/{id}/{s}/{e}` | TMDB | `color`, `autoPlay`, `nextEpisode`, `episodeSelector`, `progress` |
+| 2 | [VidSrc](https://vidsrc.sh/vidsrc/docs/) | `/embed/movie/{id}`, `/embed/tv/{id}/{s}/{e}` | IMDb or TMDB | `autoplay`, `autonext`, `startAt`, `ds_lang` |
+
+- Pick the default server in **Settings**, or switch from the server menu on the watch page. When you switch, playback continues from where you were.
+- Watch progress is read from both players' `PLAYER_EVENT` messages, which use different formats (see `src/lib/servers.js`).
+- VidSrc's keyless API is also used for:
+  - `/info/...json`: the quality badge, and the "unavailable on this server" warning with a one-click switch
+  - `/episodes/latest`, `/movies/latest`: the **New Episodes** and **Recently Added Movies** rows on the home page
+- To add another server, add an entry to `SERVERS` in `src/lib/servers.js` with its `url()` builder and `parseEvent()`.
 
 ## Features
 

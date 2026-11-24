@@ -107,22 +107,7 @@ export const TV_GENRES = [...MOVIE_GENRES, 'Reality-TV', 'Talk-Show', 'Game-Show
 const THIS_YEAR = new Date().getFullYear();
 export const YEARS = Array.from({ length: 30 }, (_, i) => String(THIS_YEAR - i));
 
-// ---------- Vidking ----------
-
-export const VIDKING = 'https://www.vidking.net';
+// ---------- ids ----------
 
 /** True for a bare TMDB numeric id (e.g. from /watch/movie/1078605). */
 export const isTmdbId = (id) => /^\d+$/.test(String(id));
-
-export function vidkingUrl({ type, id, season, episode }, opts = {}) {
-  const qs = new URLSearchParams();
-  qs.set('color', (opts.color || '8b6cff').replace('#', ''));
-  if (opts.autoPlay) qs.set('autoPlay', 'true');
-  if (type === 'tv') {
-    if (opts.nextEpisode) qs.set('nextEpisode', 'true');
-    if (opts.episodeSelector) qs.set('episodeSelector', 'true');
-  }
-  if (opts.progress > 0) qs.set('progress', String(Math.floor(opts.progress)));
-  const path = type === 'tv' ? `/embed/tv/${id}/${season}/${episode}` : `/embed/movie/${id}`;
-  return `${VIDKING}${path}?${qs}`;
-}

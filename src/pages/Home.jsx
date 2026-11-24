@@ -3,6 +3,7 @@ import Hero from '../components/Hero.jsx';
 import Row, { Scroller } from '../components/Row.jsx';
 import { ContinueCard, PosterCard } from '../components/Card.jsx';
 import { catalog, YEARS } from '../lib/catalog.js';
+import { vidsrcLatest } from '../lib/servers.js';
 import { continueList, useList, useProgress } from '../lib/store.js';
 
 export function ContinueRow() {
@@ -52,6 +53,24 @@ export default function Home() {
         <Row title="Popular Movies" items={popular?.movies.slice(0, 30)} more="/movies" />
         <Row title="Popular Series" items={popular?.shows.slice(0, 30)} more="/tv" />
         <MyListRow />
+        <Row
+          title="New Episodes"
+          load={() => vidsrcLatest('episodes')}
+          card={(it) => (
+            <PosterCard
+              key={`ep-${it.id}`}
+              item={it}
+              href={`/watch/tv/${it.id}/${it.season}/${it.episode}`}
+              sub={`S${it.season} E${it.episode}`}
+              badge={it.quality}
+            />
+          )}
+        />
+        <Row
+          title="Recently Added Movies"
+          load={() => vidsrcLatest('movies')}
+          card={(it) => <PosterCard key={`m-${it.id}`} item={it} badge={it.quality} />}
+        />
         <Row title={`New in ${YEARS[0]}`} type="movie" query={{ list: 'year', genre: YEARS[0] }} more={`/movies?sort=year&year=${YEARS[0]}`} />
         <Row title="Top Rated Movies" type="movie" query={{ list: 'imdbRating' }} more="/movies?sort=imdbRating" />
         <Row title="Top Rated Series" type="tv" query={{ list: 'imdbRating' }} more="/tv?sort=imdbRating" />

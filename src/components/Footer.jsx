@@ -18,7 +18,7 @@ export default function Footer() {
         </nav>
       </div>
       <div className="container fineprint">
-        NodeVid does not store any files on its server. All media is provided by non-affiliated third parties via the Vidking embed player. Catalog data from Cinemeta.
+        NodeVid does not store any files on its server. All media is provided by non-affiliated third parties via embed servers (Vidking, VidSrc). Catalog data from Cinemeta.
       </div>
     </footer>
   );

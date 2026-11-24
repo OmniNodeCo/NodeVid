@@ -4,10 +4,10 @@ import { removeProgress } from '../lib/store.js';
 import Img from './Img.jsx';
 import * as I from './Icons.jsx';
 
-export function PosterCard({ item }) {
+export function PosterCard({ item, href, sub, badge }) {
   const { type, title, year } = item;
   return (
-    <Link to={`/${type}/${item.id}`} className="card" title={title}>
+    <Link to={href || `/${type}/${item.id}`} className="card" title={title}>
       <div className="card-poster">
         <Img srcs={sized(item.poster, 'medium')} alt={title} loading="lazy" fallback={<div className="card-fallback">{title}</div>} />
         <div className="card-overlay">
@@ -15,6 +15,7 @@ export function PosterCard({ item }) {
             <I.Play width={18} height={18} />
           </span>
         </div>
+        {badge && <span className="card-badge">{badge}</span>}
         {item.rating > 0 && (
           <span className="card-rating">
             <I.Star width={11} height={11} /> {item.rating.toFixed(1)}
@@ -24,9 +25,13 @@ export function PosterCard({ item }) {
       <div className="card-meta">
         <div className="card-title">{title}</div>
         <div className="card-sub">
-          {year}
-          {year && ' • '}
-          {type === 'tv' ? 'Series' : 'Movie'}
+          {sub || (
+            <>
+              {year}
+              {year && ' • '}
+              {type === 'tv' ? 'Series' : 'Movie'}
+            </>
+          )}
         </div>
       </div>
     </Link>

@@ -47,7 +47,7 @@ export function Scroller({ children, className = '' }) {
 }
 
 /** A titled, lazily-loaded horizontal row of posters from a catalog. */
-export default function Row({ title, type, query, items: given, more, exclude }) {
+export default function Row({ title, type, query, load, items: given, more, exclude, card }) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(Boolean(given));
   const [items, setItems] = useState(given || null);
@@ -74,9 +74,9 @@ export default function Row({ title, type, query, items: given, more, exclude })
   }, [given]);
 
   useEffect(() => {
-    if (!visible || given || !type) return;
+    if (!visible || given || (!type && !load)) return;
     let alive = true;
-    catalog(type, query)
+    (load ? load() : catalog(type, query))
       .then((d) => alive && setItems(d.filter((x) => x.id !== exclude).slice(0, 30)))
       .catch(() => alive && setItems([]));
     return () => {
@@ -98,7 +98,7 @@ export default function Row({ title, type, query, items: given, more, exclude })
       </div>
       <Scroller>
         {items
-          ? items.map((it) => <PosterCard key={`${it.type}-${it.id}`} item={it} />)
+          ? items.map((it) => (card ? card(it) : <PosterCard key={`${it.type}-${it.id}`} item={it} />))
           : Array.from({ length: 8 }, (_, i) => (
               <div className="card skeleton-card" key={i}>
                 <div className="card-poster skeleton" />

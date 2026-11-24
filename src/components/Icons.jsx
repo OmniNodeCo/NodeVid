@@ -96,3 +96,15 @@ export const Youtube = (p) => (
     <path d="m10 9 5 3-5 3z" fill="currentColor" />
   </svg>
 );
+export const Server = (p) => (
+  <svg {...base} {...p}>
+    <rect x="3" y="4" width="18" height="7" rx="2" />
+    <rect x="3" y="13" width="18" height="7" rx="2" />
+    <path d="M7 7.5h.01M7 16.5h.01" />
+  </svg>
+);
+export const ChevronDown = (p) => (
+  <svg {...base} {...p}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);

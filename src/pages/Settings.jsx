@@ -1,6 +1,23 @@
 import { useEffect } from 'react';
 import { DEFAULT_SETTINGS, listStore, progressStore, settingsStore, useSettings } from '../lib/store.js';
 import { PlayById } from './Search.jsx';
+import { SERVERS } from '../lib/servers.js';
+import * as I from '../components/Icons.jsx';
+
+const SUB_LANGS = [
+  ['', 'Off / player default'],
+  ['en', 'English'],
+  ['es', 'Spanish'],
+  ['fr', 'French'],
+  ['de', 'German'],
+  ['pt', 'Portuguese'],
+  ['it', 'Italian'],
+  ['ar', 'Arabic'],
+  ['hi', 'Hindi'],
+  ['ja', 'Japanese'],
+  ['ko', 'Korean'],
+  ['zh', 'Chinese'],
+];
 
 const COLORS = ['8b6cff', 'e50914', 'ff5c8a', 'f59e0b', '22c55e', '06b6d4', '3b82f6', 'ffffff'];
 
@@ -32,6 +49,25 @@ export default function Settings() {
       <h1>Settings</h1>
 
       <section className="panel">
+        <h2>Default server</h2>
+        <p className="setting-desc" style={{ marginBottom: 14 }}>
+          The server the player opens with. You can switch any time from the server menu while watching.
+        </p>
+        <div className="server-picker">
+          {SERVERS.map((sv, i) => (
+            <button key={sv.id} className={`server-opt ${s.server === sv.id ? 'active' : ''}`} onClick={() => set({ server: sv.id })}>
+              <span className="server-num">{i + 1}</span>
+              <span className="server-text">
+                <strong>{sv.name}</strong>
+                <small>{sv.note}</small>
+              </span>
+              {s.server === sv.id && <I.Check width={16} height={16} />}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
         <h2>Player</h2>
         <div className="setting">
           <div>
@@ -51,10 +87,23 @@ export default function Settings() {
             <input type="color" value={`#${s.color}`} onChange={(e) => set({ color: e.target.value.slice(1) })} aria-label="Custom color" />
           </div>
         </div>
+        <label className="setting">
+          <div>
+            <div className="setting-label">Subtitle language</div>
+            <div className="setting-desc">Default subtitles on the VidSrc server.</div>
+          </div>
+          <select className="select" value={s.subLang} onChange={(e) => set({ subLang: e.target.value })}>
+            {SUB_LANGS.map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </label>
         <Toggle label="Autoplay" desc="Start playback as soon as the player loads." checked={s.autoPlay} onChange={(v) => set({ autoPlay: v })} />
         <Toggle label="Next episode button" desc="Show the player's next-episode button for TV shows." checked={s.nextEpisode} onChange={(v) => set({ nextEpisode: v })} />
         <Toggle label="In-player episode menu" desc="Let the player show its own episode selector." checked={s.episodeSelector} onChange={(v) => set({ episodeSelector: v })} />
-        <Toggle label="Auto-play next episode" desc="Count down and continue to the next episode when one ends." checked={s.autoNext} onChange={(v) => set({ autoNext: v })} />
+        <Toggle label="Auto-play next episode" desc="Continue to the next episode when one ends (VidSrc does this in-player)." checked={s.autoNext} onChange={(v) => set({ autoNext: v })} />
         <button className="btn btn-glass btn-sm" onClick={() => settingsStore.set(DEFAULT_SETTINGS)}>
           Reset player settings
         </button>
@@ -76,7 +125,7 @@ export default function Settings() {
       <PlayById />
 
       <p className="fineprint">
-        No account or API key needed. Catalog data comes from the public Cinemeta API and playback from the Vidking embed player; NodeVid does not host any files.
+        No account or API key needed. Catalog data comes from the public Cinemeta API and playback from third-party embed servers (Vidking, VidSrc); NodeVid does not host any files.
       </p>
     </div>
   );

@@ -52,6 +52,8 @@ export const DEFAULT_SETTINGS = {
   nextEpisode: true,
   episodeSelector: true,
   autoNext: true,
+  server: 'vidking',
+  subLang: '',
 };
 
 export const settingsStore = createStore('nv2:settings', DEFAULT_SETTINGS);
