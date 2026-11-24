@@ -1,0 +1,114 @@
+import { useEffect, useState } from 'react';
+import { DEFAULT_SETTINGS, listStore, progressStore, settingsStore, useSettings } from '../lib/store.js';
+import { getClientKey, getMode, setClientKey, validateKey } from '../lib/tmdb.js';
+
+const COLORS = ['8b6cff', 'e50914', 'ff5c8a', 'f59e0b', '22c55e', '06b6d4', '3b82f6', 'ffffff'];
+
+function Toggle({ label, desc, checked, onChange }) {
+  return (
+    <label className="setting">
+      <div>
+        <div className="setting-label">{label}</div>
+        {desc && <div className="setting-desc">{desc}</div>}
+      </div>
+      <span className={`switch ${checked ? 'on' : ''}`}>
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span />
+      </span>
+    </label>
+  );
+}
+
+export default function Settings() {
+  const s = useSettings();
+  const set = (patch) => settingsStore.set((prev) => ({ ...prev, ...patch }));
+  const [key, setKey] = useState(getClientKey());
+  const [keyMsg, setKeyMsg] = useState('');
+  const mode = getMode();
+
+  useEffect(() => {
+    document.title = 'Settings — NodeVid';
+  }, []);
+
+  const saveKey = async () => {
+    setKeyMsg('Checking…');
+    if (!key.trim()) {
+      setClientKey('');
+      return location.reload();
+    }
+    if (await validateKey(key.trim())) {
+      setClientKey(key.trim());
+      location.reload();
+    } else setKeyMsg('That key was rejected by TMDB.');
+  };
+
+  return (
+    <div className="container page-pad narrow">
+      <h1>Settings</h1>
+
+      <section className="panel">
+        <h2>Player</h2>
+        <div className="setting">
+          <div>
+            <div className="setting-label">Accent color</div>
+            <div className="setting-desc">Used for the Vidking player controls.</div>
+          </div>
+          <div className="swatches">
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                className={`swatch ${s.color === c ? 'active' : ''}`}
+                style={{ background: `#${c}` }}
+                onClick={() => set({ color: c })}
+                aria-label={`#${c}`}
+              />
+            ))}
+            <input type="color" value={`#${s.color}`} onChange={(e) => set({ color: e.target.value.slice(1) })} aria-label="Custom color" />
+          </div>
+        </div>
+        <Toggle label="Autoplay" desc="Start playback as soon as the player loads." checked={s.autoPlay} onChange={(v) => set({ autoPlay: v })} />
+        <Toggle label="Next episode button" desc="Show the player's next-episode button for TV shows." checked={s.nextEpisode} onChange={(v) => set({ nextEpisode: v })} />
+        <Toggle label="In-player episode menu" desc="Let the player show its own episode selector." checked={s.episodeSelector} onChange={(v) => set({ episodeSelector: v })} />
+        <Toggle label="Auto-play next episode" desc="Count down and continue to the next episode when one ends." checked={s.autoNext} onChange={(v) => set({ autoNext: v })} />
+        <button className="btn btn-glass btn-sm" onClick={() => settingsStore.set(DEFAULT_SETTINGS)}>
+          Reset player settings
+        </button>
+      </section>
+
+      <section className="panel">
+        <h2>Your data</h2>
+        <p className="setting-desc">Your list and watch history are stored only in this browser.</p>
+        <div className="btn-row">
+          <button className="btn btn-glass btn-sm" onClick={() => confirm('Clear watch history?') && progressStore.set({})}>
+            Clear watch history
+          </button>
+          <button className="btn btn-glass btn-sm" onClick={() => confirm('Clear My List?') && listStore.set([])}>
+            Clear My List
+          </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>TMDB</h2>
+        {mode === 'server' ? (
+          <p className="setting-desc">Metadata is provided by the server&apos;s TMDB key. Nothing to configure.</p>
+        ) : (
+          <>
+            <p className="setting-desc">Your TMDB API key (v3 key or v4 read token) is stored in this browser.</p>
+            <div className="key-row">
+              <input className="input" value={key} onChange={(e) => setKey(e.target.value)} placeholder="TMDB API key" type="password" />
+              <button className="btn btn-primary btn-sm" onClick={saveKey}>
+                Save
+              </button>
+            </div>
+            {keyMsg && <p className="setting-desc">{keyMsg}</p>}
+          </>
+        )}
+      </section>
+
+      <p className="fineprint">
+        This product uses the TMDB API but is not endorsed or certified by TMDB. Video playback is provided by a third-party embed (Vidking); NodeVid does not host any files.
+      </p>
+    </div>
+  );
+}
