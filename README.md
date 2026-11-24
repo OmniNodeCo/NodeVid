@@ -28,7 +28,7 @@ https://www.vidking.net/embed/tv/{tmdbId}/{season}/{episode}
 | `/watch/movie/:id` | Player. `id` is an IMDb id (resolved to TMDB) or a raw TMDB id (e.g. `/watch/movie/1078605`) |
 | `/watch/tv/:id/:season/:episode` | Episode player (e.g. `/watch/tv/1396/1/1`) |
 
-## Run
+## Run locally
 
 ```bash
 npm install
@@ -36,7 +36,21 @@ npm run build
 npm start          # http://localhost:3000
 ```
 
-`npm run dev` starts the Vite dev server. The app is fully static, so you can also deploy `dist/` to any static host. If you do, configure a SPA fallback to `index.html`.
+`npm run dev` starts the Vite dev server. The front-end source, including its `index.html`, lives in `src/`.
+
+## GitHub Pages
+
+Live at **https://omninodeco.github.io/NodeVid/**
+
+Pages for this repo is set to *Deploy from a branch → `/` (root)*, so the pre-built site is committed at the repo root (`index.html`, `404.html`, `assets/`, `.nojekyll`). After changing the code, rebuild and commit it:
+
+```bash
+npm run build:pages          # builds with base "/NodeVid/" into the repo root
+git add -A && git commit -m "Rebuild Pages" && git push
+```
+
+- `404.html` is a copy of `index.html`. Pages has no SPA rewrites, so this is what makes deep links like `/NodeVid/tv/tt0903747` load.
+- To use a different base path (for example a custom domain at `/`), run `npm run build:pages -- --base /`.
 
 ---
 
