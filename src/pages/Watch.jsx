@@ -1,24 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { img, tmdb, titleOf } from '../lib/tmdb.js';
+import { isTmdbId, meta, normalize, seasonsOf, vidkingUrl } from '../lib/catalog.js';
 import { getResumeTime, saveProgress, touchProgress, useProgress, useSettings, progressKey } from '../lib/store.js';
+import Img from '../components/Img.jsx';
 import * as I from '../components/Icons.jsx';
-
-const VIDKING = 'https://www.vidking.net';
-
-function buildSrc({ type, id, season, episode }, settings) {
-  const qs = new URLSearchParams();
-  qs.set('color', (settings.color || '8b6cff').replace('#', ''));
-  if (settings.autoPlay) qs.set('autoPlay', 'true');
-  if (type === 'tv') {
-    if (settings.nextEpisode) qs.set('nextEpisode', 'true');
-    if (settings.episodeSelector) qs.set('episodeSelector', 'true');
-  }
-  const resume = getResumeTime(type, id, season, episode);
-  if (resume > 0) qs.set('progress', String(resume));
-  const path = type === 'tv' ? `/embed/tv/${id}/${season}/${episode}` : `/embed/movie/${id}`;
-  return `${VIDKING}${path}?${qs}`;
-}
 
 function parseMessage(raw) {
   let msg = raw;
@@ -36,20 +21,49 @@ function parseMessage(raw) {
 export default function Watch({ type }) {
   const params = useParams();
   const id = params.id;
-  const season = Number(params.season) || 1;
+  const season = Number(params.season ?? 1);
   const episode = Number(params.episode) || 1;
   const navigate = useNavigate();
   const settings = useSettings();
   const progress = useProgress();
 
-  const [details, setDetails] = useState(null);
-  const [seasonData, setSeasonData] = useState({});
+  // Resolve the id Vidking needs: TMDB id from the catalog, or the bare id given.
+  const [m, setM] = useState(null);
+  const [embedId, setEmbedId] = useState(isTmdbId(id) ? id : null);
   const [drawer, setDrawer] = useState(false);
   const [drawerSeason, setDrawerSeason] = useState(season);
-  const [upNext, setUpNext] = useState(null); // { s, e, at }
+  const [upNext, setUpNext] = useState(null);
   const [now, setNow] = useState(Date.now());
 
-  const metaRef = useRef(null);
+  useEffect(() => {
+    setM(null);
+    if (isTmdbId(id)) {
+      setEmbedId(id);
+      return;
+    }
+    setEmbedId(null);
+    let alive = true;
+    meta(type, id)
+      .then((d) => {
+        if (!alive) return;
+        setM(d);
+        setEmbedId(String(d.moviedb_id || id));
+      })
+      .catch(() => alive && setEmbedId(id)); // fall back to the IMDb id
+    return () => {
+      alive = false;
+    };
+  }, [type, id]);
+
+  const item = useMemo(
+    () => (m ? { ...normalize(m, type), id } : { id, type, title: isTmdbId(id) ? `TMDB #${id}` : '' }),
+    [m, type, id]
+  );
+  const itemRef = useRef(item);
+  itemRef.current = item;
+  const embedRef = useRef(embedId);
+  embedRef.current = embedId;
+
   const lastSave = useRef(0);
   const skipReload = useRef(false);
   const current = useRef({ season, episode });
@@ -57,72 +71,54 @@ export default function Watch({ type }) {
 
   // The iframe src only changes on user navigation, not when the player
   // itself switches episodes (we just mirror that into the URL).
-  const [src, setSrc] = useState(() => buildSrc({ type, id, season, episode }, settings));
+  const [src, setSrc] = useState(null);
   useEffect(() => {
+    if (!embedId) return;
     if (skipReload.current) {
       skipReload.current = false;
       return;
     }
-    setSrc(buildSrc({ type, id, season, episode }, settings));
+    setSrc(
+      vidkingUrl(
+        { type, id: embedId, season, episode },
+        { ...settings, progress: getResumeTime(type, id, season, episode) }
+      )
+    );
     setUpNext(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, id, season, episode]);
-
-  // Title metadata
-  useEffect(() => {
-    let alive = true;
-    tmdb(`${type}/${id}`).then((d) => {
-      if (!alive) return;
-      setDetails(d);
-      metaRef.current = { ...d, type };
-    });
-    return () => {
-      alive = false;
-    };
-  }, [type, id]);
+  }, [type, embedId, season, episode]);
 
   useEffect(() => {
-    if (!details) return;
-    document.title = type === 'tv' ? `${titleOf(details)} S${season}E${episode} — NodeVid` : `${titleOf(details)} — NodeVid`;
-    touchProgress({ ...details, type }, season, episode);
-  }, [details, season, episode, type]);
+    if (type === 'tv' && item.title) document.title = `${item.title} S${season}E${episode} — NodeVid`;
+    else if (item.title) document.title = `${item.title} — NodeVid`;
+    if (embedId) touchProgress(item, season, episode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item, embedId, season, episode, type]);
 
-  // Season episode lists (for prev/next + drawer)
-  const loadSeason = useCallback(
-    (s) => {
-      if (type !== 'tv' || seasonData[s]) return;
-      tmdb(`tv/${id}/season/${s}`)
-        .then((d) => setSeasonData((m) => ({ ...m, [s]: d.episodes || [] })))
-        .catch(() => setSeasonData((m) => ({ ...m, [s]: [] })));
-    },
-    [type, id, seasonData]
-  );
-  useEffect(() => {
-    loadSeason(season);
-    setDrawerSeason(season);
-  }, [season, id]);
-  useEffect(() => {
-    if (drawer) loadSeason(drawerSeason);
-  }, [drawer, drawerSeason]);
+  useEffect(() => setDrawerSeason(season), [season, id]);
 
-  const seasons = useMemo(() => (details?.seasons || []).filter((s) => s.episode_count > 0 && s.season_number > 0), [details]);
+  const seasons = useMemo(() => (m ? seasonsOf(m) : []), [m]);
+  const mainSeasons = seasons.filter((s) => s.season > 0);
+  const epsOf = (s) => seasons.find((x) => x.season === s)?.episodes || [];
 
-  const neighbor = useCallback(
-    (dir) => {
-      if (type !== 'tv' || !details) return null;
-      const eps = seasonData[season];
-      const count = eps?.length || seasons.find((s) => s.season_number === season)?.episode_count || 0;
-      if (dir > 0) {
-        if (episode < count) return { s: season, e: episode + 1 };
-        const next = seasons.find((s) => s.season_number > season);
-        return next ? { s: next.season_number, e: 1 } : null;
-      }
-      if (episode > 1) return { s: season, e: episode - 1 };
-      const prev = [...seasons].reverse().find((s) => s.season_number < season);
-      return prev ? { s: prev.season_number, e: prev.episode_count } : null;
-    },
-    [type, details, seasonData, season, episode, seasons]
-  );
+  const neighbor = (dir) => {
+    if (type !== 'tv') return null;
+    if (!seasons.length) {
+      // No catalog data (opened by TMDB id): just step the episode number.
+      if (dir > 0) return { s: season, e: episode + 1 };
+      return episode > 1 ? { s: season, e: episode - 1 } : null;
+    }
+    const count = epsOf(season).length;
+    const ordered = season === 0 ? seasons : mainSeasons;
+    if (dir > 0) {
+      if (episode < count) return { s: season, e: episode + 1 };
+      const next = ordered.find((s) => s.season > season);
+      return next ? { s: next.season, e: next.episodes[0]?.episode || 1 } : null;
+    }
+    if (episode > 1) return { s: season, e: episode - 1 };
+    const prev = [...ordered].reverse().find((s) => s.season < season && s.season > 0);
+    return prev ? { s: prev.season, e: prev.episodes[prev.episodes.length - 1]?.episode || 1 } : null;
+  };
   const next = neighbor(1);
   const prev = neighbor(-1);
   const go = (n) => n && navigate(`/watch/tv/${id}/${n.s}/${n.e}`, { replace: true });
@@ -131,9 +127,8 @@ export default function Watch({ type }) {
   useEffect(() => {
     const onMessage = (e) => {
       const data = parseMessage(e.data);
-      if (!data || !metaRef.current) return;
-      // Ignore events that clearly belong to some other title.
-      if (data.id && String(data.id) !== String(id)) return;
+      if (!data || !embedRef.current) return;
+      if (data.id && String(data.id) !== String(embedRef.current)) return;
       const s = Number(data.season) || current.current.season;
       const ep = Number(data.episode) || current.current.episode;
 
@@ -148,14 +143,11 @@ export default function Watch({ type }) {
       const time = Number(data.currentTime) || 0;
       const duration = Number(data.duration) || 0;
       const t = Date.now();
-      const force = data.event !== 'timeupdate';
-      if (force || t - lastSave.current > 4000) {
+      if (data.event !== 'timeupdate' || t - lastSave.current > 4000) {
         lastSave.current = t;
-        saveProgress(metaRef.current, { season: s, episode: ep, time, duration });
+        saveProgress(itemRef.current, { season: s, episode: ep, time, duration });
       }
-      if (data.event === 'ended' && type === 'tv' && settings.autoNext) {
-        setUpNext({ at: Date.now() + 8000 });
-      }
+      if (data.event === 'ended' && type === 'tv' && settings.autoNext) setUpNext({ at: Date.now() + 8000 });
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -164,23 +156,21 @@ export default function Watch({ type }) {
   // Up-next countdown
   useEffect(() => {
     if (!upNext) return;
-    if (!next) {
-      setUpNext(null);
-      return;
-    }
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
-  }, [upNext, next]);
+  }, [upNext]);
   useEffect(() => {
-    if (upNext && next && now >= upNext.at) {
+    if (!upNext) return;
+    if (!next) setUpNext(null);
+    else if (now >= upNext.at) {
       setUpNext(null);
       go(next);
     }
   }, [now]);
 
   const entry = progress[progressKey(type, id)];
-  const title = details ? titleOf(details) : '';
-  const epName = seasonData[season]?.find((x) => x.episode_number === episode)?.name;
+  const epName = epsOf(season).find((x) => x.episode === episode)?.name;
+  const nextName = next && epsOf(next.s).find((x) => x.episode === next.e)?.name;
 
   return (
     <div className="watch">
@@ -189,7 +179,7 @@ export default function Watch({ type }) {
           <I.ArrowLeft />
         </button>
         <div className="watch-title">
-          <Link to={`/${type}/${id}`}>{title || 'Loading…'}</Link>
+          <Link to={`/${type}/${id}`}>{item.title || 'Loading…'}</Link>
           {type === 'tv' && (
             <span>
               S{season} · E{episode}
@@ -205,29 +195,31 @@ export default function Watch({ type }) {
             <button className="btn btn-glass btn-sm" disabled={!next} onClick={() => go(next)}>
               <span className="hide-sm">Next</span> <I.ChevronRight width={16} height={16} />
             </button>
-            <button className={`btn btn-sm ${drawer ? 'btn-primary' : 'btn-glass'}`} onClick={() => setDrawer((v) => !v)}>
-              <I.List width={16} height={16} /> <span className="hide-sm">Episodes</span>
-            </button>
+            {seasons.length > 0 && (
+              <button className={`btn btn-sm ${drawer ? 'btn-primary' : 'btn-glass'}`} onClick={() => setDrawer((v) => !v)}>
+                <I.List width={16} height={16} /> <span className="hide-sm">Episodes</span>
+              </button>
+            )}
           </div>
         )}
       </div>
 
       <div className="watch-body">
         <div className="player">
-          <iframe
-            key={src}
-            src={src}
-            title={title || 'Player'}
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
+          {src ? (
+            <iframe key={src} src={src} title={item.title || 'Player'} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen />
+          ) : (
+            <div className="player-loading">
+              <span className="spinner" />
+            </div>
+          )}
           {upNext && next && (
             <div className="upnext">
               <div>
                 <small>Up next in {Math.max(0, Math.ceil((upNext.at - now) / 1000))}s</small>
                 <strong>
                   S{next.s} E{next.e}
-                  {seasonData[next.s]?.find((x) => x.episode_number === next.e)?.name ? ` — ${seasonData[next.s].find((x) => x.episode_number === next.e).name}` : ''}
+                  {nextName ? ` — ${nextName}` : ''}
                 </strong>
               </div>
               <button className="btn btn-primary btn-sm" onClick={() => go(next)}>
@@ -240,13 +232,13 @@ export default function Watch({ type }) {
           )}
         </div>
 
-        {type === 'tv' && drawer && (
+        {type === 'tv' && drawer && seasons.length > 0 && (
           <aside className="drawer">
             <div className="drawer-head">
               <select className="select" value={drawerSeason} onChange={(e) => setDrawerSeason(Number(e.target.value))}>
                 {seasons.map((s) => (
-                  <option key={s.id} value={s.season_number}>
-                    {s.name || `Season ${s.season_number}`}
+                  <option key={s.season} value={s.season}>
+                    {s.season === 0 ? 'Specials' : `Season ${s.season}`}
                   </option>
                 ))}
               </select>
@@ -255,18 +247,13 @@ export default function Watch({ type }) {
               </button>
             </div>
             <div className="drawer-list">
-              {!seasonData[drawerSeason] && <div className="skeleton skeleton-line" />}
-              {seasonData[drawerSeason]?.map((ep) => {
-                const active = drawerSeason === season && ep.episode_number === episode;
-                const p = entry?.episodes?.[`${drawerSeason}:${ep.episode_number}`];
+              {epsOf(drawerSeason).map((ep) => {
+                const active = drawerSeason === season && ep.episode === episode;
+                const p = entry?.episodes?.[`${drawerSeason}:${ep.episode}`];
                 return (
-                  <button
-                    key={ep.id}
-                    className={`drawer-ep ${active ? 'active' : ''}`}
-                    onClick={() => go({ s: drawerSeason, e: ep.episode_number })}
-                  >
+                  <button key={ep.id || ep.episode} className={`drawer-ep ${active ? 'active' : ''}`} onClick={() => go({ s: drawerSeason, e: ep.episode })}>
                     <div className="drawer-still">
-                      {ep.still_path || details?.backdrop_path ? <img src={img(ep.still_path || details.backdrop_path, 'w300')} alt="" loading="lazy" /> : null}
+                      <Img srcs={[ep.thumbnail, item.background]} alt="" loading="lazy" />
                       {active && <span className="now-playing">Playing</span>}
                       {p && (
                         <div className="ccard-bar">
@@ -276,9 +263,9 @@ export default function Watch({ type }) {
                     </div>
                     <div className="drawer-info">
                       <strong>
-                        {ep.episode_number}. {ep.name}
+                        {ep.episode}. {ep.name || `Episode ${ep.episode}`}
                       </strong>
-                      <small>{ep.runtime ? `${ep.runtime}m` : ep.air_date}</small>
+                      <small>{(ep.released || ep.firstAired || '').slice(0, 10)}</small>
                     </div>
                   </button>
                 );

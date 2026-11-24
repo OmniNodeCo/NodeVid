@@ -1,25 +1,23 @@
 import { Link } from 'react-router-dom';
-import { img, mediaTypeOf, titleOf, yearOf } from '../lib/tmdb.js';
+import { sized } from '../lib/catalog.js';
 import { removeProgress } from '../lib/store.js';
+import Img from './Img.jsx';
 import * as I from './Icons.jsx';
 
-export function PosterCard({ item, type }) {
-  const t = type || mediaTypeOf(item);
-  const title = titleOf(item);
-  const poster = img(item.poster_path, 'w342');
-  const year = yearOf(item) || (item.date || '').slice(0, 4);
+export function PosterCard({ item }) {
+  const { type, title, year } = item;
   return (
-    <Link to={`/${t}/${item.id}`} className="card" title={title}>
+    <Link to={`/${type}/${item.id}`} className="card" title={title}>
       <div className="card-poster">
-        {poster ? <img src={poster} alt={title} loading="lazy" /> : <div className="card-fallback">{title}</div>}
+        <Img srcs={sized(item.poster, 'medium')} alt={title} loading="lazy" fallback={<div className="card-fallback">{title}</div>} />
         <div className="card-overlay">
           <span className="card-play">
             <I.Play width={18} height={18} />
           </span>
         </div>
-        {item.vote_average > 0 && (
+        {item.rating > 0 && (
           <span className="card-rating">
-            <I.Star width={11} height={11} /> {item.vote_average.toFixed(1)}
+            <I.Star width={11} height={11} /> {item.rating.toFixed(1)}
           </span>
         )}
       </div>
@@ -28,7 +26,7 @@ export function PosterCard({ item, type }) {
         <div className="card-sub">
           {year}
           {year && ' • '}
-          {t === 'tv' ? 'TV' : 'Movie'}
+          {type === 'tv' ? 'Series' : 'Movie'}
         </div>
       </div>
     </Link>
@@ -48,11 +46,12 @@ export function ContinueCard({ entry }) {
     <div className="ccard">
       <Link to={href} className="ccard-link">
         <div className="ccard-img">
-          {entry.backdrop_path ? (
-            <img src={img(entry.backdrop_path, 'w780')} alt={entry.title} loading="lazy" />
-          ) : (
-            <div className="card-fallback">{entry.title}</div>
-          )}
+          <Img
+            srcs={[...sized(entry.background, 'medium'), ...sized(entry.poster, 'medium')]}
+            alt={entry.title}
+            loading="lazy"
+            fallback={<div className="card-fallback">{entry.title}</div>}
+          />
           <div className="ccard-shade" />
           <span className="ccard-play">
             <I.Play width={20} height={20} />

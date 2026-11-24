@@ -54,9 +54,9 @@ export const DEFAULT_SETTINGS = {
   autoNext: true,
 };
 
-export const settingsStore = createStore('nv:settings', DEFAULT_SETTINGS);
-export const listStore = createStore('nv:list', []);
-export const progressStore = createStore('nv:progress', {});
+export const settingsStore = createStore('nv2:settings', DEFAULT_SETTINGS);
+export const listStore = createStore('nv2:list', []);
+export const progressStore = createStore('nv2:progress', {});
 
 const useStore = (s) => useSyncExternalStore(s.subscribe, s.get);
 export const useSettings = () => useStore(settingsStore);
@@ -67,12 +67,14 @@ export const useProgress = () => useStore(progressStore);
 
 export const slim = (item, type) => ({
   id: item.id,
-  type,
-  title: item.title || item.name || '',
-  poster_path: item.poster_path || null,
-  backdrop_path: item.backdrop_path || null,
-  vote_average: item.vote_average || 0,
-  date: item.release_date || item.first_air_date || '',
+  type: type || item.type,
+  title: item.title || '',
+  poster: item.poster || null,
+  background: item.background || null,
+  logo: item.logo || null,
+  rating: item.rating || 0,
+  year: item.year || '',
+  tmdbId: item.tmdbId || null,
 });
 
 export function toggleList(item, type) {
@@ -82,7 +84,7 @@ export function toggleList(item, type) {
   });
 }
 
-export const inList = (list, id, type) => list.some((x) => x.id === Number(id) && x.type === type);
+export const inList = (list, id, type) => list.some((x) => String(x.id) === String(id) && x.type === type);
 
 // ---------- Watch progress ----------
 

@@ -1698,3 +1698,54 @@ a.episode:hover .episode-play {
     opacity: 1;
   }
 }
+
+/* ---------- keyless additions ---------- */
+.player-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.playid {
+  margin-bottom: 28px;
+}
+.playid-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.playid-head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.playid-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.playid-row > .input {
+  flex: 1;
+  min-width: 200px;
+}
+.playid-row .btn {
+  height: 40px;
+}
+.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mini .input {
+  width: 70px;
+  padding: 0 10px;
+}
+.hero-logo {
+  width: auto;
+}

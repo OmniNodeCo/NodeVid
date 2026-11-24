@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import Hero from '../components/Hero.jsx';
 import Row, { Scroller } from '../components/Row.jsx';
-import { ContinueCard } from '../components/Card.jsx';
-import { tmdb } from '../lib/tmdb.js';
+import { ContinueCard, PosterCard } from '../components/Card.jsx';
+import { catalog, YEARS } from '../lib/catalog.js';
 import { continueList, useList, useProgress } from '../lib/store.js';
-import { PosterCard } from '../components/Card.jsx';
 
 export function ContinueRow() {
   const progress = useProgress();
@@ -27,55 +26,43 @@ export function ContinueRow() {
 function MyListRow() {
   const list = useList();
   if (!list.length) return null;
-  return (
-    <section className="row">
-      <div className="row-head">
-        <h2>My List</h2>
-      </div>
-      <Scroller>
-        {list.map((it) => (
-          <PosterCard key={`${it.type}-${it.id}`} item={it} type={it.type} />
-        ))}
-      </Scroller>
-    </section>
-  );
+  return <Row title="My List" items={list} more="/list" />;
 }
 
 export default function Home() {
-  const [trending, setTrending] = useState(null);
+  const [popular, setPopular] = useState(null);
 
   useEffect(() => {
     document.title = 'NodeVid — Watch Movies & TV Shows';
-    tmdb('trending/all/day')
-      .then((d) => setTrending(d.results.filter((x) => x.media_type !== 'person')))
-      .catch(() => setTrending([]));
+    Promise.all([catalog('movie').catch(() => []), catalog('tv').catch(() => [])]).then(([m, t]) => {
+      const mixed = [];
+      for (let i = 0; i < 6; i++) {
+        if (m[i]) mixed.push(m[i]);
+        if (t[i]) mixed.push(t[i]);
+      }
+      setPopular({ mixed, movies: m, shows: t });
+    });
   }, []);
 
   return (
     <div className="page-home">
-      <Hero items={trending} />
+      <Hero items={popular?.mixed} />
       <div className="rows">
         <ContinueRow />
-        <Row title="Trending Today" items={trending?.filter((x) => x.poster_path)} />
+        <Row title="Popular Movies" items={popular?.movies.slice(0, 30)} more="/movies" />
+        <Row title="Popular Series" items={popular?.shows.slice(0, 30)} more="/tv" />
         <MyListRow />
-        <Row title="Popular Movies" path="movie/popular" type="movie" more="/movies" />
-        <Row title="Popular TV Shows" path="tv/popular" type="tv" more="/tv" />
-        <Row title="Now Playing in Theaters" path="movie/now_playing" type="movie" />
-        <Row title="Top Rated Movies" path="movie/top_rated" type="movie" more="/movies?sort=vote_average.desc" />
-        <Row title="Top Rated TV Shows" path="tv/top_rated" type="tv" more="/tv?sort=vote_average.desc" />
-        <Row
-          title="Popular Anime"
-          path="discover/tv"
-          params={{ with_genres: 16, with_original_language: 'ja', sort_by: 'popularity.desc' }}
-          type="tv"
-          more="/anime"
-        />
-        <Row title="Action & Adventure" path="discover/movie" params={{ with_genres: 28, sort_by: 'popularity.desc' }} type="movie" more="/movies?genre=28" />
-        <Row title="Comedy" path="discover/movie" params={{ with_genres: 35, sort_by: 'popularity.desc' }} type="movie" more="/movies?genre=35" />
-        <Row title="Horror" path="discover/movie" params={{ with_genres: 27, sort_by: 'popularity.desc' }} type="movie" more="/movies?genre=27" />
-        <Row title="Sci-Fi & Fantasy Series" path="discover/tv" params={{ with_genres: 10765, sort_by: 'popularity.desc' }} type="tv" more="/tv?genre=10765" />
-        <Row title="Crime TV" path="discover/tv" params={{ with_genres: 80, sort_by: 'popularity.desc' }} type="tv" more="/tv?genre=80" />
-        <Row title="Documentaries" path="discover/movie" params={{ with_genres: 99, sort_by: 'popularity.desc' }} type="movie" more="/movies?genre=99" />
+        <Row title={`New in ${YEARS[0]}`} type="movie" query={{ list: 'year', genre: YEARS[0] }} more={`/movies?sort=year&year=${YEARS[0]}`} />
+        <Row title="Top Rated Movies" type="movie" query={{ list: 'imdbRating' }} more="/movies?sort=imdbRating" />
+        <Row title="Top Rated Series" type="tv" query={{ list: 'imdbRating' }} more="/tv?sort=imdbRating" />
+        <Row title="Animation" type="tv" query={{ genre: 'Animation' }} more="/animation" />
+        <Row title="Action Movies" type="movie" query={{ genre: 'Action' }} more="/movies?genre=Action" />
+        <Row title="Comedy Movies" type="movie" query={{ genre: 'Comedy' }} more="/movies?genre=Comedy" />
+        <Row title="Horror Movies" type="movie" query={{ genre: 'Horror' }} more="/movies?genre=Horror" />
+        <Row title="Sci-Fi Series" type="tv" query={{ genre: 'Sci-Fi' }} more="/tv?genre=Sci-Fi" />
+        <Row title="Crime Series" type="tv" query={{ genre: 'Crime' }} more="/tv?genre=Crime" />
+        <Row title="Animated Movies" type="movie" query={{ genre: 'Animation' }} more="/animation?format=movie" />
+        <Row title="Documentaries" type="movie" query={{ genre: 'Documentary' }} more="/movies?genre=Documentary" />
       </div>
     </div>
   );

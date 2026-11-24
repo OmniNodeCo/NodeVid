@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { certificationOf, formatRuntime, img, pickLogo, pickTrailer, tmdb, titleOf, yearOf } from '../lib/tmdb.js';
+import { isTmdbId, meta, normalize, seasonsOf, sized } from '../lib/catalog.js';
 import { inList, progressKey, toggleList, useList, useProgress } from '../lib/store.js';
-import Row, { Scroller } from '../components/Row.jsx';
+import Row from '../components/Row.jsx';
+import Img from '../components/Img.jsx';
+import { TitleLogo } from '../components/Hero.jsx';
 import * as I from '../components/Icons.jsx';
 
-function TrailerModal({ video, onClose }) {
+function TrailerModal({ ytId, onClose }) {
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -22,8 +24,8 @@ function TrailerModal({ video, onClose }) {
           <I.X />
         </button>
         <iframe
-          src={`https://www.youtube-nocookie.com/embed/${video.key}?autoplay=1&rel=0`}
-          title={video.name}
+          src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`}
+          title="Trailer"
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
           allowFullScreen
         />
@@ -32,59 +34,45 @@ function TrailerModal({ video, onClose }) {
   );
 }
 
-function Episodes({ show, season, setSeason, entry }) {
-  const [data, setData] = useState(null);
-  const seasons = (show.seasons || []).filter((s) => s.episode_count > 0);
-  const today = new Date().toISOString().slice(0, 10);
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '');
 
-  useEffect(() => {
-    setData(null);
-    tmdb(`tv/${show.id}/season/${season}`)
-      .then(setData)
-      .catch(() => setData({ episodes: [] }));
-  }, [show.id, season]);
-
+function Episodes({ item, seasons, season, setSeason, entry }) {
+  const now = Date.now();
+  const current = seasons.find((s) => s.season === season) || seasons[0];
+  if (!current) return null;
   return (
     <section className="section">
       <div className="section-head">
         <h2>Episodes</h2>
-        <select className="select" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
+        <select className="select" value={current.season} onChange={(e) => setSeason(Number(e.target.value))}>
           {seasons.map((s) => (
-            <option key={s.id} value={s.season_number}>
-              {s.name || `Season ${s.season_number}`} ({s.episode_count})
+            <option key={s.season} value={s.season}>
+              {s.season === 0 ? 'Specials' : `Season ${s.season}`} ({s.episodes.length})
             </option>
           ))}
         </select>
       </div>
       <div className="episodes">
-        {!data &&
-          Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="episode">
-              <div className="episode-still skeleton" />
-              <div className="episode-info">
-                <div className="skeleton skeleton-line" />
-                <div className="skeleton skeleton-line short" />
-              </div>
-            </div>
-          ))}
-        {data?.episodes?.map((ep) => {
-          const p = entry?.episodes?.[`${season}:${ep.episode_number}`];
-          const current = entry?.season === season && entry?.episode === ep.episode_number;
-          const upcoming = ep.air_date && ep.air_date > today;
+        {current.episodes.map((ep) => {
+          const p = entry?.episodes?.[`${current.season}:${ep.episode}`];
+          const isLast = entry?.season === current.season && entry?.episode === ep.episode;
+          const date = ep.released || ep.firstAired;
+          const upcoming = date && new Date(date).getTime() > now;
           const content = (
             <>
               <div className="episode-still">
-                {ep.still_path ? (
-                  <img src={img(ep.still_path, 'w300')} alt="" loading="lazy" />
-                ) : (
-                  <img src={img(show.backdrop_path, 'w300')} alt="" loading="lazy" className="dim" />
-                )}
+                <Img
+                  srcs={[ep.thumbnail, ...sized(item.background, 'medium')]}
+                  alt=""
+                  loading="lazy"
+                  className={ep.thumbnail ? '' : 'dim'}
+                />
                 {!upcoming && (
                   <span className="episode-play">
                     <I.Play width={18} height={18} />
                   </span>
                 )}
-                <span className="episode-num">E{ep.episode_number}</span>
+                <span className="episode-num">E{ep.episode}</span>
                 {p && (
                   <div className="ccard-bar">
                     <span style={{ width: `${Math.min(100, p.progress)}%` }} />
@@ -93,32 +81,35 @@ function Episodes({ show, season, setSeason, entry }) {
               </div>
               <div className="episode-info">
                 <div className="episode-title">
-                  {ep.episode_number}. {ep.name}
-                  {current && <span className="tag">Last watched</span>}
+                  {ep.episode}. {ep.name || ep.title || `Episode ${ep.episode}`}
+                  {isLast && <span className="tag">Last watched</span>}
                 </div>
                 <div className="episode-sub">
-                  {upcoming ? `Airs ${new Date(ep.air_date).toLocaleDateString()}` : [formatRuntime(ep.runtime), ep.air_date && new Date(ep.air_date).toLocaleDateString()].filter(Boolean).join(' • ')}
-                  {ep.vote_average > 0 && (
+                  {upcoming ? `Airs ${fmtDate(date)}` : fmtDate(date)}
+                  {parseFloat(ep.rating) > 0 && (
                     <span className="episode-rating">
-                      <I.Star width={11} height={11} /> {ep.vote_average.toFixed(1)}
+                      <I.Star width={11} height={11} /> {parseFloat(ep.rating).toFixed(1)}
                     </span>
                   )}
                 </div>
-                <p className="episode-overview">{ep.overview || 'No description available.'}</p>
+                <p className="episode-overview">{ep.overview || ep.description || 'No description available.'}</p>
               </div>
             </>
           );
           return upcoming ? (
-            <div key={ep.id} className="episode upcoming">
+            <div key={ep.id || ep.episode} className="episode upcoming">
               {content}
             </div>
           ) : (
-            <Link key={ep.id} to={`/watch/tv/${show.id}/${season}/${ep.episode_number}`} className={`episode ${current ? 'current' : ''}`}>
+            <Link
+              key={ep.id || ep.episode}
+              to={`/watch/tv/${item.id}/${current.season}/${ep.episode}`}
+              className={`episode ${isLast ? 'current' : ''}`}
+            >
               {content}
             </Link>
           );
         })}
-        {data && !data.episodes?.length && <p className="empty">No episodes listed for this season.</p>}
       </div>
     </section>
   );
@@ -127,7 +118,7 @@ function Episodes({ show, season, setSeason, entry }) {
 export default function Details({ type }) {
   const { id } = useParams();
   const [sp, setSp] = useSearchParams();
-  const [d, setD] = useState(null);
+  const [m, setM] = useState(null);
   const [error, setError] = useState(null);
   const [trailer, setTrailer] = useState(false);
   const list = useList();
@@ -135,123 +126,139 @@ export default function Details({ type }) {
   const entry = progress[progressKey(type, id)];
 
   useEffect(() => {
-    setD(null);
+    setM(null);
     setError(null);
     window.scrollTo(0, 0);
-    tmdb(`${type}/${id}`, {
-      append_to_response: `videos,images,credits,external_ids,${type === 'movie' ? 'release_dates' : 'content_ratings'}`,
-      include_image_language: 'en,null',
-    })
+    if (isTmdbId(id)) return;
+    meta(type, id)
       .then((data) => {
-        setD(data);
-        document.title = `${titleOf(data)} — NodeVid`;
+        setM(data);
+        document.title = `${data.name} — NodeVid`;
       })
       .catch((e) => setError(e.message));
   }, [type, id]);
 
-  const firstSeason = d?.seasons?.find((s) => s.season_number > 0 && s.episode_count > 0)?.season_number ?? d?.seasons?.[0]?.season_number ?? 1;
-  const season = Number(sp.get('season')) || entry?.season || firstSeason;
+  const item = useMemo(() => (m ? { ...normalize(m, type), id } : null), [m, type, id]);
+  const seasons = useMemo(() => (type === 'tv' && m ? seasonsOf(m) : []), [m, type]);
+  const firstSeason = seasons.find((s) => s.season > 0)?.season ?? seasons[0]?.season ?? 1;
+  const season = sp.has('season') ? Number(sp.get('season')) : entry?.season ?? firstSeason;
   const setSeason = (n) => setSp({ season: String(n) }, { replace: true });
 
+  // Bare TMDB ids have no catalog metadata — offer to play directly.
+  if (isTmdbId(id)) {
+    return (
+      <div className="container page-pad empty-state">
+        <h1>TMDB #{id}</h1>
+        <p>This title was opened by ID, so there&apos;s no catalog info — but it can still be played.</p>
+        <Link to={type === 'tv' ? `/watch/tv/${id}/1/1` : `/watch/movie/${id}`} className="btn btn-primary">
+          <I.Play width={18} height={18} /> Play
+        </Link>
+      </div>
+    );
+  }
   if (error)
     return (
       <div className="container page-pad">
         <p className="empty">Couldn&apos;t load this title: {error}</p>
       </div>
     );
-  if (!d) return <div className="hero hero-skeleton skeleton" />;
+  if (!item) return <div className="hero hero-skeleton skeleton" />;
 
-  const logo = pickLogo(d.images);
-  const video = pickTrailer(d.videos);
-  const cert = certificationOf(d, type);
-  const saved = inList(list, d.id, type);
-  const runtime = type === 'movie' ? formatRuntime(d.runtime) : d.number_of_seasons ? `${d.number_of_seasons} Season${d.number_of_seasons > 1 ? 's' : ''}` : '';
-  const director = d.credits?.crew?.find((c) => c.job === 'Director');
-  const creators = d.created_by?.map((c) => c.name).join(', ');
-  const cast = (d.credits?.cast || []).slice(0, 20);
+  const saved = inList(list, id, type);
+  const ytId = m.trailers?.find((t) => t.type === 'Trailer')?.source || m.trailers?.[0]?.source || m.trailerStreams?.[0]?.ytId;
+  const directors = Array.isArray(m.director) ? m.director.join(', ') : m.director;
+  const writers = Array.isArray(m.writer) ? m.writer.slice(0, 3).join(', ') : m.writer;
+  const cast = m.cast || [];
+  const nSeasons = seasons.filter((s) => s.season > 0).length;
 
   let playHref, playLabel;
   if (type === 'movie') {
-    playHref = `/watch/movie/${d.id}`;
+    playHref = `/watch/movie/${id}`;
     playLabel = entry && entry.progress > 1 && entry.progress < 95 ? 'Resume' : 'Watch Now';
   } else if (entry) {
-    playHref = `/watch/tv/${d.id}/${entry.season}/${entry.episode}`;
+    playHref = `/watch/tv/${id}/${entry.season}/${entry.episode}`;
     playLabel = `Resume S${entry.season} E${entry.episode}`;
   } else {
-    playHref = `/watch/tv/${d.id}/${firstSeason}/1`;
+    playHref = `/watch/tv/${id}/${firstSeason}/1`;
     playLabel = `Play S${firstSeason} E1`;
   }
 
   return (
     <div className="details">
       <section className="details-hero">
-        <div className="hero-bg active">{d.backdrop_path && <img src={img(d.backdrop_path, 'original')} alt="" />}</div>
+        <div className="hero-bg active">
+          <Img srcs={sized(item.background, 'large')} alt="" />
+        </div>
         <div className="hero-shade" />
         <div className="details-content">
-          {d.poster_path && <img className="details-poster" src={img(d.poster_path, 'w500')} alt={titleOf(d)} />}
+          <Img className="details-poster" srcs={sized(item.poster, 'medium')} alt={item.title} />
           <div className="details-main">
-            {logo ? <img className="hero-logo" src={img(logo.file_path, 'w500')} alt={titleOf(d)} /> : <h1 className="hero-title">{titleOf(d)}</h1>}
+            <TitleLogo item={item} />
             <div className="meta-line">
-              {d.vote_average > 0 && (
+              {item.rating > 0 && (
                 <span className="pill pill-rating">
-                  <I.Star width={12} height={12} /> {d.vote_average.toFixed(1)}
+                  <I.Star width={12} height={12} /> {item.rating.toFixed(1)}
                 </span>
               )}
-              {cert && <span className="pill pill-outline">{cert}</span>}
-              <span>{yearOf(d)}</span>
-              {runtime && <span className="dot-sep">{runtime}</span>}
-              {type === 'tv' && d.status && <span className="dot-sep">{d.status}</span>}
+              {item.yearRange && <span>{item.yearRange}</span>}
+              {type === 'movie' && item.runtime && <span className="dot-sep">{item.runtime}</span>}
+              {type === 'tv' && nSeasons > 0 && (
+                <span className="dot-sep">
+                  {nSeasons} Season{nSeasons > 1 ? 's' : ''}
+                </span>
+              )}
+              {m.status && type === 'tv' && <span className="dot-sep">{m.status}</span>}
             </div>
             <div className="genres">
-              {d.genres?.map((g) => (
-                <Link key={g.id} to={`/${type === 'movie' ? 'movies' : 'tv'}?genre=${g.id}`} className="chip chip-sm">
-                  {g.name}
+              {item.genres.map((g) => (
+                <Link key={g} to={`/${type === 'movie' ? 'movies' : 'tv'}?genre=${encodeURIComponent(g)}`} className="chip chip-sm">
+                  {g}
                 </Link>
               ))}
             </div>
-            {d.tagline && <p className="tagline">“{d.tagline}”</p>}
-            <p className="hero-overview full">{d.overview}</p>
+            <p className="hero-overview full">{item.description}</p>
             <div className="hero-actions">
               <Link to={playHref} className="btn btn-primary">
                 <I.Play width={18} height={18} /> {playLabel}
               </Link>
-              {video && (
+              {ytId && (
                 <button className="btn btn-glass" onClick={() => setTrailer(true)}>
                   <I.Youtube width={18} height={18} /> Trailer
                 </button>
               )}
-              <button className="btn btn-glass" onClick={() => toggleList(d, type)}>
+              <button className="btn btn-glass" onClick={() => toggleList(item, type)}>
                 {saved ? <I.Check width={18} height={18} /> : <I.Plus width={18} height={18} />} {saved ? 'In My List' : 'My List'}
               </button>
             </div>
             <dl className="facts">
-              {director && (
-                <>
-                  <dt>Director</dt>
-                  <dd>{director.name}</dd>
-                </>
-              )}
-              {creators && (
-                <>
-                  <dt>Created by</dt>
-                  <dd>{creators}</dd>
-                </>
-              )}
               {cast.length > 0 && (
                 <>
                   <dt>Starring</dt>
-                  <dd>
-                    {cast
-                      .slice(0, 4)
-                      .map((c) => c.name)
-                      .join(', ')}
-                  </dd>
+                  <dd>{cast.slice(0, 5).join(', ')}</dd>
                 </>
               )}
-              {d.networks?.length > 0 && (
+              {directors && (
                 <>
-                  <dt>Network</dt>
-                  <dd>{d.networks.map((n) => n.name).join(', ')}</dd>
+                  <dt>Director</dt>
+                  <dd>{directors}</dd>
+                </>
+              )}
+              {writers && (
+                <>
+                  <dt>Writers</dt>
+                  <dd>{writers}</dd>
+                </>
+              )}
+              {m.country && (
+                <>
+                  <dt>Country</dt>
+                  <dd>{m.country}</dd>
+                </>
+              )}
+              {m.awards && (
+                <>
+                  <dt>Awards</dt>
+                  <dd>{m.awards}</dd>
                 </>
               )}
             </dl>
@@ -260,32 +267,29 @@ export default function Details({ type }) {
       </section>
 
       <div className="rows details-rows">
-        {type === 'tv' && <Episodes show={d} season={season} setSeason={setSeason} entry={entry} />}
-
-        {cast.length > 0 && (
-          <section className="row">
-            <div className="row-head">
-              <h2>Cast</h2>
-            </div>
-            <Scroller>
-              {cast.map((c) => (
-                <div className="person" key={c.credit_id}>
-                  <div className="person-img">
-                    {c.profile_path ? <img src={img(c.profile_path, 'w185')} alt={c.name} loading="lazy" /> : <span>{c.name.slice(0, 1)}</span>}
-                  </div>
-                  <div className="person-name">{c.name}</div>
-                  <div className="person-role">{c.character || c.roles?.[0]?.character}</div>
-                </div>
-              ))}
-            </Scroller>
-          </section>
+        {type === 'tv' && seasons.length > 0 && <Episodes item={item} seasons={seasons} season={season} setSeason={setSeason} entry={entry} />}
+        {item.genres[0] && (
+          <Row
+            key={`g1-${id}`}
+            title={`More ${item.genres[0]} ${type === 'tv' ? 'Series' : 'Movies'}`}
+            type={type}
+            query={{ genre: item.genres[0] }}
+            exclude={id}
+            more={`/${type === 'movie' ? 'movies' : 'tv'}?genre=${encodeURIComponent(item.genres[0])}`}
+          />
         )}
-
-        <Row title="More Like This" path={`${type}/${d.id}/recommendations`} type={type} key={`rec-${d.id}`} />
-        <Row title="Similar Titles" path={`${type}/${d.id}/similar`} type={type} key={`sim-${d.id}`} />
+        {item.genres[1] && (
+          <Row
+            key={`g2-${id}`}
+            title={`Top Rated ${item.genres[1]}`}
+            type={type}
+            query={{ list: 'imdbRating', genre: item.genres[1] }}
+            exclude={id}
+          />
+        )}
       </div>
 
-      {trailer && video && <TrailerModal video={video} onClose={() => setTrailer(false)} />}
+      {trailer && ytId && <TrailerModal ytId={ytId} onClose={() => setTrailer(false)} />}
     </div>
   );
 }

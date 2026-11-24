@@ -19,7 +19,7 @@ const links = [
   { to: '/', label: 'Home', icon: I.Home, end: true },
   { to: '/movies', label: 'Movies', icon: I.Film },
   { to: '/tv', label: 'TV Shows', icon: I.Tv },
-  { to: '/anime', label: 'Anime', icon: I.Sparkles },
+  { to: '/animation', label: 'Animation', icon: I.Sparkles },
   { to: '/list', label: 'My List', icon: I.Bookmark },
 ];
 
@@ -77,7 +77,7 @@ export default function Navbar() {
           <div className="nav-right">
             <label className="nav-search">
               <I.Search width={18} height={18} />
-              <input ref={inputRef} value={q} onChange={onChange} placeholder="Search movies & shows" aria-label="Search" />
+              <input ref={inputRef} value={q} onChange={onChange} placeholder="Search titles or paste an ID" aria-label="Search" />
               {!q && <kbd>/</kbd>}
             </label>
             <Link to="/search" className="icon-btn nav-search-mobile" aria-label="Search">

@@ -1,63 +1,73 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { tmdb } from './tmdb.js';
+import { useEffect, useRef, useState } from 'react';
 
-/** Paginated TMDB list with de-duplication + a sentinel ref for infinite scroll. */
-export default function useInfinite(path, params, { enabled = true, filter } = {}) {
+/**
+ * Infinite list driven by a skip-based fetcher: fetchPage(skip) => items[].
+ * `key` must change whenever the query changes. Returns a sentinel ref to
+ * place after the list; when it scrolls into view the next page loads.
+ */
+export default function useInfinite(fetchPage, key, { enabled = true, pageable = true } = {}) {
   const [items, setItems] = useState([]);
-  const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const key = `${path}?${JSON.stringify(params)}`;
+  const [done, setDone] = useState(false);
   const keyRef = useRef(key);
+  const busy = useRef(false);
   const sentinel = useRef(null);
+  const state = useRef({ items: [] });
 
-  const load = useCallback(
-    async (p, k) => {
-      setLoading(true);
-      try {
-        const d = await tmdb(path, { ...params, page: p });
-        if (keyRef.current !== k) return;
-        const results = (d.results || []).filter(filter || (() => true));
-        setItems((prev) => {
-          const seen = new Set(prev.map((x) => `${x.media_type}-${x.id}`));
-          return [...(p === 1 ? [] : prev), ...results.filter((x) => !seen.has(`${x.media_type}-${x.id}`) || p === 1)];
-        });
-        setTotalPages(Math.min(d.total_pages || 1, 500));
-        setPage(p);
-        setError(null);
-      } catch (e) {
-        if (keyRef.current === k) setError(e.message);
-      } finally {
-        if (keyRef.current === k) setLoading(false);
+  const load = async (k) => {
+    if (busy.current) return;
+    busy.current = true;
+    setLoading(true);
+    try {
+      const skip = state.current.items.length;
+      const page = await fetchPage(skip);
+      if (keyRef.current !== k) return;
+      const seen = new Set(state.current.items.map((x) => `${x.type}-${x.id}`));
+      const fresh = page.filter((x) => !seen.has(`${x.type}-${x.id}`));
+      state.current.items = [...state.current.items, ...fresh];
+      setItems(state.current.items);
+      if (!pageable || fresh.length === 0) setDone(true);
+      setError(null);
+    } catch (e) {
+      if (keyRef.current === k) {
+        setError(e.message);
+        setDone(true);
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [key]
-  );
+    } finally {
+      if (keyRef.current === k) {
+        busy.current = false;
+        setLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
     keyRef.current = key;
+    busy.current = false;
+    state.current.items = [];
     setItems([]);
-    setPage(0);
-    setTotalPages(1);
-    if (enabled) load(1, key);
+    setDone(false);
+    setError(null);
+    if (enabled) load(key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
 
-  const hasMore = page < totalPages;
+  const hasMore = enabled && !done && items.length > 0;
 
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || !enabled) return;
+    if (!el || !hasMore) return;
     const io = new IntersectionObserver(
       ([e]) => {
-        if (e.isIntersecting && !loading && hasMore && page > 0) load(page + 1, keyRef.current);
+        if (e.isIntersecting && !busy.current) load(keyRef.current);
       },
       { rootMargin: '800px' }
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loading, hasMore, page, enabled, load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, items.length]);
 
   return { items, loading, error, hasMore, sentinel };
 }

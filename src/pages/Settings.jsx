@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { DEFAULT_SETTINGS, listStore, progressStore, settingsStore, useSettings } from '../lib/store.js';
-import { getClientKey, getMode, setClientKey, validateKey } from '../lib/tmdb.js';
+import { PlayById } from './Search.jsx';
 
 const COLORS = ['8b6cff', 'e50914', 'ff5c8a', 'f59e0b', '22c55e', '06b6d4', '3b82f6', 'ffffff'];
 
@@ -22,25 +22,10 @@ function Toggle({ label, desc, checked, onChange }) {
 export default function Settings() {
   const s = useSettings();
   const set = (patch) => settingsStore.set((prev) => ({ ...prev, ...patch }));
-  const [key, setKey] = useState(getClientKey());
-  const [keyMsg, setKeyMsg] = useState('');
-  const mode = getMode();
 
   useEffect(() => {
     document.title = 'Settings — NodeVid';
   }, []);
-
-  const saveKey = async () => {
-    setKeyMsg('Checking…');
-    if (!key.trim()) {
-      setClientKey('');
-      return location.reload();
-    }
-    if (await validateKey(key.trim())) {
-      setClientKey(key.trim());
-      location.reload();
-    } else setKeyMsg('That key was rejected by TMDB.');
-  };
 
   return (
     <div className="container page-pad narrow">
@@ -88,26 +73,10 @@ export default function Settings() {
         </div>
       </section>
 
-      <section className="panel">
-        <h2>TMDB</h2>
-        {mode === 'server' ? (
-          <p className="setting-desc">Metadata is provided by the server&apos;s TMDB key. Nothing to configure.</p>
-        ) : (
-          <>
-            <p className="setting-desc">Your TMDB API key (v3 key or v4 read token) is stored in this browser.</p>
-            <div className="key-row">
-              <input className="input" value={key} onChange={(e) => setKey(e.target.value)} placeholder="TMDB API key" type="password" />
-              <button className="btn btn-primary btn-sm" onClick={saveKey}>
-                Save
-              </button>
-            </div>
-            {keyMsg && <p className="setting-desc">{keyMsg}</p>}
-          </>
-        )}
-      </section>
+      <PlayById />
 
       <p className="fineprint">
-        This product uses the TMDB API but is not endorsed or certified by TMDB. Video playback is provided by a third-party embed (Vidking); NodeVid does not host any files.
+        No account or API key needed. Catalog data comes from the public Cinemeta API and playback from the Vidking embed player; NodeVid does not host any files.
       </p>
     </div>
   );

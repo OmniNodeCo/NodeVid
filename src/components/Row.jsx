@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { tmdb } from '../lib/tmdb.js';
+import { catalog } from '../lib/catalog.js';
 import { PosterCard } from './Card.jsx';
 import * as I from './Icons.jsx';
 
@@ -46,11 +46,12 @@ export function Scroller({ children, className = '' }) {
   );
 }
 
-/** A titled, lazily-loaded horizontal row of posters fetched from TMDB. */
-export default function Row({ title, path, params, type, items: given, more }) {
+/** A titled, lazily-loaded horizontal row of posters from a catalog. */
+export default function Row({ title, type, query, items: given, more, exclude }) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(Boolean(given));
   const [items, setItems] = useState(given || null);
+  const qkey = JSON.stringify(query || {});
 
   useEffect(() => {
     if (given) {
@@ -73,15 +74,15 @@ export default function Row({ title, path, params, type, items: given, more }) {
   }, [given]);
 
   useEffect(() => {
-    if (!visible || given || !path) return;
+    if (!visible || given || !type) return;
     let alive = true;
-    tmdb(path, params)
-      .then((d) => alive && setItems((d.results || []).filter((x) => x.poster_path && x.media_type !== 'person')))
+    catalog(type, query)
+      .then((d) => alive && setItems(d.filter((x) => x.id !== exclude).slice(0, 30)))
       .catch(() => alive && setItems([]));
     return () => {
       alive = false;
     };
-  }, [visible, path, JSON.stringify(params), given]);
+  }, [visible, type, qkey, given, exclude]);
 
   if (items && items.length === 0) return null;
 
@@ -97,7 +98,7 @@ export default function Row({ title, path, params, type, items: given, more }) {
       </div>
       <Scroller>
         {items
-          ? items.map((it) => <PosterCard key={`${it.media_type || type}-${it.id}`} item={it} type={type} />)
+          ? items.map((it) => <PosterCard key={`${it.type}-${it.id}`} item={it} />)
           : Array.from({ length: 8 }, (_, i) => (
               <div className="card skeleton-card" key={i}>
                 <div className="card-poster skeleton" />
