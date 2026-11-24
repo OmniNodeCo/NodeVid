@@ -30,6 +30,8 @@ export default function App() {
       <main className={watching ? '' : 'main'}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/index.html" element={<Navigate to="/" replace />} />
+          <Route path="/404.html" element={<Navigate to="/" replace />} />
           <Route path="/movies" element={<Browse kind="movie" key="movie" />} />
           <Route path="/tv" element={<Browse kind="tv" key="tv" />} />
           <Route path="/animation" element={<Browse kind="animation" key="animation" />} />
