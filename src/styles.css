@@ -1879,3 +1879,69 @@ a.episode:hover .episode-play {
 .server-picker .server-opt {
   border: 1px solid var(--line);
 }
+.badge-muted {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+.badge-warn {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+}
+.auto-pill {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(139, 108, 255, 0.25);
+  color: #c4b5fd;
+  letter-spacing: 0.04em;
+}
+.player-loading {
+  flex-direction: column;
+  gap: 14px;
+  align-content: center;
+  justify-items: center;
+}
+.player-loading small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.server-notice {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  translate: -50% 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 8px 8px 14px;
+  border-radius: 14px;
+  background: rgba(14, 14, 21, 0.94);
+  border: 1px solid rgba(139, 108, 255, 0.4);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  font-size: 13.5px;
+  animation: rise 0.25s ease both;
+}
+.server-notice > svg {
+  color: #c4b5fd;
+  flex: none;
+}
+.server-notice.warn {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+.server-notice.warn > svg {
+  color: #fcd34d;
+}
+.server-notice .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+@media (max-width: 860px) {
+  .server-notice {
+    flex-wrap: wrap;
+    width: auto;
+  }
+}

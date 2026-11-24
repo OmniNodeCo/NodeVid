@@ -53,6 +53,8 @@ export const DEFAULT_SETTINGS = {
   episodeSelector: true,
   autoNext: true,
   server: 'vidking',
+  autoServer: true,
+  minHD: true,
   subLang: '',
 };
 

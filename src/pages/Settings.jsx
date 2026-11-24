@@ -51,7 +51,7 @@ export default function Settings() {
       <section className="panel">
         <h2>Default server</h2>
         <p className="setting-desc" style={{ marginBottom: 14 }}>
-          The server the player opens with. You can switch any time from the server menu while watching.
+          Your preferred server. You can switch any time from the server menu while watching — picking one by hand turns off auto-switching for that title.
         </p>
         <div className="server-picker">
           {SERVERS.map((sv, i) => (
@@ -64,6 +64,20 @@ export default function Settings() {
               {s.server === sv.id && <I.Check width={16} height={16} />}
             </button>
           ))}
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <Toggle
+            label="Auto-switch servers"
+            desc="Automatically move to another server if the site is down, doesn't have the title, or the player doesn't load."
+            checked={s.autoServer}
+            onChange={(v) => set({ autoServer: v })}
+          />
+          <Toggle
+            label="Require 1080p"
+            desc="Also switch when a server only has lower quality (720p, SD, CAM) and another server can do better."
+            checked={s.minHD}
+            onChange={(v) => set({ minHD: v })}
+          />
         </div>
       </section>
 

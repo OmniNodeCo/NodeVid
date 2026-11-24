@@ -21,7 +21,25 @@ https://www.vidking.net/embed/tv/{tmdbId}/{season}/{episode}
 - VidSrc's keyless API is also used for:
   - `/info/...json`: the quality badge, and the "unavailable on this server" warning with a one-click switch
   - `/episodes/latest`, `/movies/latest`: the **New Episodes** and **Recently Added Movies** rows on the home page
-- To add another server, add an entry to `SERVERS` in `src/lib/servers.js` with its `url()` builder and `parseEvent()`.
+- To add another server, add an entry to `SERVERS` in `src/lib/servers.js` with its `origins`, `url()`, `check()` and `parseEvent()`.
+
+### Automatic server switching
+
+When you open a title or episode, NodeVid checks the servers and uses your preferred one unless there's a problem. It moves to the other server in these cases:
+
+| Situation | How it's detected |
+| --- | --- |
+| **Site is down** | A quick reachability check of each server's domain, with a 5 s timeout. If VidSrc's main domain is down, its official mirrors (`vidsrc.sh`, then `vidsrc2.ru`, then `vidsrc.ir`) are tried before giving up on it |
+| **Title not available** | VidSrc's `/info` API returns 404 for the title or episode |
+| **Quality below 1080p** | VidSrc's `/info` reports 720p, SD, DVD or CAM. NodeVid only switches if the other server is likely to be better |
+| **Player won't load** | The embed hasn't loaded and sent no player events after 20 s. That server is marked as failed and the next one is tried |
+
+- When NodeVid switches, a notice says why (for example, "VidSrc only has 720p — switched to Vidking for better quality"). The notice has a **Use VidSrc** button to switch back.
+- An automatic switch only applies to that page. It never changes your default server.
+- If you pick a server from the menu yourself, NodeVid keeps it for that title and doesn't switch automatically. It still warns you if that server is down or doesn't have the title.
+- The server menu shows each server's live status: Online, Down, Unavailable, or its quality, with low quality highlighted.
+- Settings has two toggles, **Auto-switch servers** and **Require 1080p**. Both are on by default.
+- Limitations: Vidking has no availability or quality API, so for Vidking only reachability is checked, plus the 20 s player watchdog. Its quality counts as "unknown", which ranks just below 1080p. Browsers can only tell if a domain is reachable, so a server that's online but serving an error page is only caught by the player watchdog.
 
 ## Features
 
