@@ -1,31 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { isTmdbId, meta, normalize, seasonsOf } from '../lib/catalog.js';
-import { HD_SCORE, SERVERS, autoPickServer, checkServer, getServer, parsePlayerMessage } from '../lib/servers.js';
+import { archiveUrl, getEntry, meta, normalize, resolveStream, seasonsOf } from '../lib/catalog.js';
+import { LICENSES } from '../lib/library.js';
 import { getResumeTime, saveProgress, settingsStore, touchProgress, useProgress, useSettings, progressKey } from '../lib/store.js';
 import Img from '../components/Img.jsx';
 import * as I from '../components/Icons.jsx';
 
-const LOAD_TIMEOUT = 20000;
-const host = (origin) => (origin ? new URL(origin).host.replace(/^www\./, '') : '');
+const qualityLabel = (s) => (s.height ? `${s.height}p` : s.format === 'Ogg Video' ? 'Ogg' : 'SD');
 
-function StatusBadge({ r, isDefaultOrigin }) {
-  if (!r) return <span className="badge badge-muted">Checking…</span>;
-  if (r.up === false) return <span className="badge badge-off">Down</span>;
-  if (r.available === false) return <span className="badge badge-off">Unavailable</span>;
-  return (
-    <>
-      {!isDefaultOrigin && r.origin && <span className="badge badge-muted">{host(r.origin)}</span>}
-      {r.quality ? (
-        <span className={`badge ${r.score != null && r.score < HD_SCORE ? 'badge-warn' : ''}`}>{r.quality}</span>
-      ) : (
-        r.up && <span className="badge badge-muted">Online</span>
-      )}
-    </>
-  );
+/** Order files by the quality preference: best first, or smallest first. */
+function orderSources(sources, pref) {
+  if (pref !== 'saver') return sources;
+  return [...sources].sort((a, b) => (a.height || 9999) - (b.height || 9999));
 }
 
-function ServerMenu({ current, onPick, results, auto, minHD }) {
+function SourceMenu({ sources, current, onPick, archiveId }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -34,58 +23,46 @@ function ServerMenu({ current, onPick, results, auto, minHD }) {
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
-
+  const cur = sources[current];
   return (
     <div className="server-menu" ref={ref}>
       <button className={`btn btn-sm ${open ? 'btn-primary' : 'btn-glass'}`} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}>
         <I.Server width={16} height={16} />
-        <span className="hide-sm">{getServer(current).name}</span>
+        <span className="hide-sm">{cur ? qualityLabel(cur) : 'Quality'}</span>
         <I.ChevronDown width={14} height={14} />
       </button>
       {open && (
         <div className="server-pop" role="listbox">
-          <div className="server-pop-title">
-            Servers {auto && <span className="auto-pill">Auto</span>}
-          </div>
-          {SERVERS.map((s, i) => {
-            const r = results[s.id];
-            return (
-              <button
-                key={s.id}
-                role="option"
-                aria-selected={s.id === current}
-                className={`server-opt ${s.id === current ? 'active' : ''}`}
-                onClick={() => {
-                  onPick(s.id);
-                  setOpen(false);
-                }}
-              >
-                <span className="server-num">{i + 1}</span>
-                <span className="server-text">
-                  <strong>{s.name}</strong>
-                  <small>{s.note}</small>
-                </span>
-                <StatusBadge r={r} isDefaultOrigin={!r?.origin || r.origin === s.origins[0]} />
-                {s.id === current && <I.Check width={16} height={16} />}
-              </button>
-            );
-          })}
+          <div className="server-pop-title">Video files</div>
+          {sources.map((s, i) => (
+            <button
+              key={s.src}
+              role="option"
+              aria-selected={i === current}
+              className={`server-opt ${i === current ? 'active' : ''}`}
+              onClick={() => {
+                onPick(i);
+                setOpen(false);
+              }}
+            >
+              <span className="server-num">{i + 1}</span>
+              <span className="server-text">
+                <strong>{qualityLabel(s)}</strong>
+                <small>{s.format}</small>
+              </span>
+              {i === current && <I.Check width={16} height={16} />}
+            </button>
+          ))}
           <div className="server-pop-foot">
-            {auto ? `Auto-switching skips servers that are down or missing the title${minHD ? ', and prefers 1080p+' : ''}.` : 'Not loading? Try another server.'}
+            Streaming from the Internet Archive.{' '}
+            <a href={archiveUrl(archiveId)} target="_blank" rel="noreferrer">
+              View on archive.org
+            </a>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function noticeText(pick, type) {
-  const from = getServer(pick.from).name;
-  const to = getServer(pick.id).name;
-  if (pick.reason === 'down') return `${from} isn't responding — switched to ${to}.`;
-  if (pick.reason === 'unavailable') return `${from} doesn't have this ${type === 'tv' ? 'episode' : 'title'} — switched to ${to}.`;
-  if (pick.reason === 'quality') return `${from} only has ${pick.fromQuality || 'low quality'} — switched to ${to} for better quality.`;
-  return `Switched to ${to}.`;
 }
 
 export default function Watch({ type }) {
@@ -96,148 +73,73 @@ export default function Watch({ type }) {
   const navigate = useNavigate();
   const settings = useSettings();
   const progress = useProgress();
+  const entryDef = getEntry(id);
 
   const [m, setM] = useState(null);
-  const [ready, setReady] = useState(isTmdbId(id));
-  const [serverId, setServerId] = useState(() => getServer(settings.server).id);
-  const [results, setResults] = useState({});
-  const [notice, setNotice] = useState(null); // { text, undo?: serverId, tone? }
-  const [resolving, setResolving] = useState(false);
-  const [tick, setTick] = useState(0);
-  const manualRef = useRef(null); // server picked by hand for this title
-  const failedRef = useRef(new Set()); // servers whose player never loaded
+  const [stream, setStream] = useState(null); // { archiveId, sources, length, title }
+  const [error, setError] = useState(null);
+  const [srcIndex, setSrcIndex] = useState(0);
+  const [notice, setNotice] = useState(null);
   const [drawer, setDrawer] = useState(false);
   const [drawerSeason, setDrawerSeason] = useState(season);
   const [upNext, setUpNext] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const videoRef = useRef(null);
+  const lastSave = useRef(0);
+  const resumeAt = useRef(0);
 
-  // Load catalog metadata (title, episodes, TMDB id for Vidking).
+  const item = useMemo(() => (entryDef ? normalize(entryDef) : { id, type, title: '' }), [entryDef, id, type]);
+  const itemRef = useRef(item);
+  itemRef.current = item;
+
+  // Series metadata (episode list).
   useEffect(() => {
     setM(null);
-    manualRef.current = null;
-    failedRef.current = new Set();
-    setResults({});
-    setNotice(null);
-    if (isTmdbId(id)) {
-      setReady(true);
-      return;
-    }
-    setReady(false);
+    if (!entryDef) return;
     let alive = true;
     meta(type, id)
       .then((d) => alive && setM(d))
-      .catch(() => {})
-      .finally(() => alive && setReady(true));
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [type, id]);
+  }, [type, id, entryDef]);
 
-  const ids = useMemo(
-    () => ({
-      imdbId: isTmdbId(id) ? m?.imdb_id || null : id,
-      tmdbId: isTmdbId(id) ? id : m?.moviedb_id ? String(m.moviedb_id) : null,
-    }),
-    [id, m]
-  );
-
-  const item = useMemo(
-    () => (m ? { ...normalize(m, type), id } : { id, type, title: isTmdbId(id) ? `TMDB #${id}` : '' }),
-    [m, type, id]
-  );
-
-  const itemRef = useRef(item);
-  itemRef.current = item;
-  const idsRef = useRef(ids);
-  idsRef.current = ids;
-  const lastSave = useRef(0);
-  const skipReload = useRef(false);
-  const current = useRef({ season, episode });
-  current.current = { season, episode };
-  const server = getServer(serverId);
-
-  // Pick a server (auto-failover) and build the iframe src. Re-runs on episode
-  // change, manual server pick, or when a server fails to load. It does NOT
-  // re-run when the player itself moves to another episode (skipReload).
-  const [src, setSrc] = useState(null);
-  const [loaded, setLoaded] = useState(false);
+  // Resolve the video file for this movie / episode.
   useEffect(() => {
-    if (!ready) return;
-    if (skipReload.current) {
-      skipReload.current = false;
+    setStream(null);
+    setError(null);
+    setUpNext(null);
+    if (!entryDef) {
+      setError('This title isn\u2019t in the NodeVid library.');
       return;
     }
     let alive = true;
-    const ctx = { type, ...ids, season, episode };
-    const seen = {};
-    const onResult = (sid, r) => {
-      seen[sid] = r;
-      if (alive) setResults((x) => ({ ...x, [sid]: r }));
-    };
-    setResolving(true);
-    setUpNext(null);
-    (async () => {
-      let pick;
-      const forced = manualRef.current;
-      if (forced || !settings.autoServer) {
-        const sid = getServer(forced || settings.server).id;
-        const r = await checkServer(sid, ctx);
-        onResult(sid, r);
-        pick = { id: sid, origin: r.origin, reason: null };
-        if (r.up === false || r.available === false) {
-          const alt = SERVERS.find((sv) => sv.id !== sid && sv.canPlay(ctx));
-          setNotice({
-            text: r.up === false ? `${getServer(sid).name} isn't responding right now.` : `${getServer(sid).name} doesn't have this ${type === 'tv' ? 'episode' : 'title'}.`,
-            undo: alt?.id,
-            tone: 'warn',
-          });
-        }
-      } else {
-        pick = await autoPickServer(settings.server, ctx, { minHD: settings.minHD, exclude: [...failedRef.current], onResult });
-      }
-      // Fill in the remaining servers' status for the menu (non-blocking).
-      SERVERS.forEach((sv) => checkServer(sv.id, ctx).then((r) => onResult(sv.id, r)));
-      if (!alive) return;
-
-      setServerId(pick.id);
-      if (pick.from) setNotice({ text: noticeText(pick, type), undo: pick.from });
-      else if (pick.reason === 'none' && SERVERS.every((sv) => seen[sv.id]?.up === false))
-        setNotice({ text: `No server is responding right now — trying ${getServer(pick.id).name} anyway. Check your connection or try again shortly.`, tone: 'warn' });
-      else if (pick.reason === 'none') setNotice({ text: `No server reports this ${type === 'tv' ? 'episode' : 'title'} as available — trying ${getServer(pick.id).name} anyway.`, tone: 'warn' });
-      setLoaded(false);
-      setSrc(
-        getServer(pick.id).url(
-          { ...ctx, settings, progress: getResumeTime(type, id, season, episode) },
-          pick.origin || undefined
-        )
-      );
-      setResolving(false);
-    })();
+    resolveStream(type, id, season, episode)
+      .then((s) => {
+        if (!alive) return;
+        const sources = orderSources(s.sources, settingsStore.get().quality);
+        resumeAt.current = getResumeTime(type, id, season, episode);
+        setSrcIndex(0);
+        setStream({ ...s, sources });
+        const lic = item.license !== 'pd' ? item.credit || LICENSES[item.license]?.label : null;
+        if (lic) setNotice({ text: `${item.title} — ${lic}` });
+      })
+      .catch((e) => alive && setError(e.message || 'Could not load this video.'));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, type, season, episode, ids, tick]);
+  }, [type, id, season, episode, entryDef]);
 
-  // Watchdog: if the player page never loads, treat that server as down.
   useEffect(() => {
-    if (!src || loaded) return;
-    const t = setTimeout(() => {
-      if (manualRef.current || !settings.autoServer) {
-        setNotice({ text: `${getServer(serverId).name} isn't loading. Try another server from the menu.`, tone: 'warn' });
-        return;
-      }
-      failedRef.current.add(serverId);
-      if (SERVERS.every((sv) => failedRef.current.has(sv.id))) {
-        setNotice({ text: 'No server is responding right now. Check your connection and try again.', tone: 'warn' });
-        return;
-      }
-      setResults((x) => ({ ...x, [serverId]: { ...(x[serverId] || {}), up: false } }));
-      setTick((n) => n + 1);
-    }, LOAD_TIMEOUT);
-    return () => clearTimeout(t);
+    if (type === 'tv' && item.title) document.title = `${item.title} S${season}E${episode} — NodeVid`;
+    else if (item.title) document.title = `${item.title} — NodeVid`;
+    if (entryDef) touchProgress(item, season, episode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src, loaded]);
+  }, [item, season, episode, type]);
+
+  useEffect(() => setDrawerSeason(season), [season, id]);
 
   // Auto-hide notices
   useEffect(() => {
@@ -246,80 +148,57 @@ export default function Watch({ type }) {
     return () => clearTimeout(t);
   }, [notice]);
 
-  const pickServer = (sid) => {
-    skipReload.current = false;
-    manualRef.current = sid;
-    failedRef.current.delete(sid);
-    setNotice(null);
-    settingsStore.set((s) => ({ ...s, server: sid }));
-    setTick((n) => n + 1);
-  };
-
-  useEffect(() => {
-    if (type === 'tv' && item.title) document.title = `${item.title} S${season}E${episode} — NodeVid`;
-    else if (item.title) document.title = `${item.title} — NodeVid`;
-    if (ready) touchProgress(item, season, episode);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item, ready, season, episode, type]);
-
-  useEffect(() => setDrawerSeason(season), [season, id]);
-
   const seasons = useMemo(() => (m ? seasonsOf(m) : []), [m]);
-  const mainSeasons = seasons.filter((s) => s.season > 0);
   const epsOf = (s) => seasons.find((x) => x.season === s)?.episodes || [];
-
-  const neighbor = (dir) => {
-    if (type !== 'tv') return null;
-    if (!seasons.length) {
-      if (dir > 0) return { s: season, e: episode + 1 };
-      return episode > 1 ? { s: season, e: episode - 1 } : null;
-    }
-    const count = epsOf(season).length;
-    const ordered = season === 0 ? seasons : mainSeasons;
-    if (dir > 0) {
-      if (episode < count) return { s: season, e: episode + 1 };
-      const next = ordered.find((s) => s.season > season);
-      return next ? { s: next.season, e: next.episodes[0]?.episode || 1 } : null;
-    }
-    if (episode > 1) return { s: season, e: episode - 1 };
-    const prev = [...ordered].reverse().find((s) => s.season < season && s.season > 0);
-    return prev ? { s: prev.season, e: prev.episodes[prev.episodes.length - 1]?.episode || 1 } : null;
-  };
-  const next = neighbor(1);
-  const prev = neighbor(-1);
+  const flat = seasons.flatMap((s) => s.episodes.map((e) => ({ s: s.season, e: e.episode })));
+  const pos = flat.findIndex((x) => x.s === season && x.e === episode);
+  const next = type === 'tv' && pos >= 0 ? flat[pos + 1] || null : null;
+  const prev = type === 'tv' && pos > 0 ? flat[pos - 1] : null;
   const go = (n) => n && navigate(`/watch/tv/${id}/${n.s}/${n.e}`, { replace: true });
 
-  // Player events (any server) -> progress tracking
-  useEffect(() => {
-    const onMessage = (e) => {
-      const ev = parsePlayerMessage(e.data);
-      if (!ev) return;
-      setLoaded(true);
-      const known = [idsRef.current.imdbId, idsRef.current.tmdbId, id].filter(Boolean).map(String);
-      if (ev.ids.length && !ev.ids.some((x) => known.includes(x))) return;
+  // ---------- <video> events ----------
+  const onLoadedMetadata = () => {
+    const v = videoRef.current;
+    if (v && resumeAt.current > 0 && resumeAt.current < v.duration - 10) {
+      v.currentTime = resumeAt.current;
+      setNotice({ text: `Resuming from ${fmt(resumeAt.current)}` });
+    }
+    resumeAt.current = 0;
+  };
+  const onTimeUpdate = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const t = Date.now();
+    if (t - lastSave.current > 4000) {
+      lastSave.current = t;
+      saveProgress(itemRef.current, { season, episode, time: v.currentTime, duration: v.duration });
+    }
+  };
+  const onPause = () => {
+    const v = videoRef.current;
+    if (v) saveProgress(itemRef.current, { season, episode, time: v.currentTime, duration: v.duration });
+  };
+  const onEnded = () => {
+    onPause();
+    if (type === 'tv' && settings.autoNext && next) setUpNext({ at: Date.now() + 8000 });
+  };
+  const onError = () => {
+    // Try the next file (e.g. a lower-quality MP4 or the Ogg version).
+    const v = videoRef.current;
+    if (v) resumeAt.current = v.currentTime || resumeAt.current;
+    if (stream && srcIndex < stream.sources.length - 1) {
+      setNotice({ text: `${qualityLabel(stream.sources[srcIndex])} file didn\u2019t load — trying ${qualityLabel(stream.sources[srcIndex + 1])}.` });
+      setSrcIndex((i) => i + 1);
+    } else {
+      setError('The video couldn\u2019t be played. archive.org may be busy — try again in a moment.');
+    }
+  };
 
-      const s = ev.season || current.current.season;
-      const ep = ev.episode || current.current.episode;
-
-      // The player switched episodes on its own (next button / selector / autonext).
-      if (type === 'tv' && ev.season && ev.episode && (s !== current.current.season || ep !== current.current.episode)) {
-        skipReload.current = true;
-        current.current = { season: s, episode: ep };
-        setUpNext(null);
-        navigate(`/watch/tv/${id}/${s}/${ep}`, { replace: true });
-      }
-
-      const t = Date.now();
-      if (ev.event !== 'timeupdate' || t - lastSave.current > 4000) {
-        lastSave.current = t;
-        saveProgress(itemRef.current, { season: s, episode: ep, time: ev.time, duration: ev.duration });
-      }
-      const playerAutoNext = getServer(ev.server).handlesAutoNext;
-      if (ev.event === 'ended' && type === 'tv' && settings.autoNext && !playerAutoNext) setUpNext({ at: Date.now() + 8000 });
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [type, id, navigate, settings.autoNext]);
+  const pickSource = (i) => {
+    const v = videoRef.current;
+    resumeAt.current = v?.currentTime || 0;
+    setSrcIndex(i);
+  };
 
   // Up-next countdown
   useEffect(() => {
@@ -334,11 +213,13 @@ export default function Watch({ type }) {
       setUpNext(null);
       go(next);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now]);
 
   const entry = progress[progressKey(type, id)];
   const epName = epsOf(season).find((x) => x.episode === episode)?.name;
   const nextName = next && epsOf(next.s).find((x) => x.episode === next.e)?.name;
+  const src = stream?.sources[srcIndex];
 
   return (
     <div className="watch">
@@ -366,7 +247,7 @@ export default function Watch({ type }) {
               </button>
             </>
           )}
-          <ServerMenu current={serverId} onPick={pickServer} results={results} auto={settings.autoServer && !manualRef.current} minHD={settings.minHD} />
+          {stream && <SourceMenu sources={stream.sources} current={srcIndex} onPick={pickSource} archiveId={stream.archiveId} />}
           {type === 'tv' && seasons.length > 0 && (
             <button className={`btn btn-sm ${drawer ? 'btn-primary' : 'btn-glass'}`} onClick={() => setDrawer((v) => !v)} aria-label="Episodes">
               <I.List width={16} height={16} /> <span className="hide-sm">Episodes</span>
@@ -377,30 +258,49 @@ export default function Watch({ type }) {
 
       <div className="watch-body">
         <div className="player">
-          {src && !resolving ? (
-            <iframe
-              key={src}
-              src={src}
-              title={item.title || 'Player'}
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-              allowFullScreen
-              onLoad={() => setLoaded(true)}
-            />
+          {error ? (
+            <div className="player-loading">
+              <I.Info width={28} height={28} />
+              <small>{error}</small>
+              <div className="player-error-actions">
+                <button className="btn btn-glass btn-sm" onClick={() => navigate(0)}>
+                  Try again
+                </button>
+                {stream && (
+                  <a className="btn btn-glass btn-sm" href={archiveUrl(stream.archiveId)} target="_blank" rel="noreferrer">
+                    Open on archive.org
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : src ? (
+            <video
+              key={src.src}
+              ref={videoRef}
+              src={src.src}
+              poster={item.background || undefined}
+              controls
+              autoPlay={settings.autoPlay}
+              playsInline
+              preload="metadata"
+              onLoadedMetadata={onLoadedMetadata}
+              onTimeUpdate={onTimeUpdate}
+              onPause={onPause}
+              onEnded={onEnded}
+              onError={onError}
+            >
+              Your browser can&apos;t play this video.
+            </video>
           ) : (
             <div className="player-loading">
               <span className="spinner" />
-              <small>{settings.autoServer && !manualRef.current ? 'Finding the best server…' : 'Loading…'}</small>
+              <small>Loading from the Internet Archive…</small>
             </div>
           )}
           {notice && (
             <div className={`server-notice ${notice.tone === 'warn' ? 'warn' : ''}`} role="status">
-              <I.Server width={16} height={16} />
+              <I.Info width={16} height={16} />
               <span>{notice.text}</span>
-              {notice.undo && (
-                <button className="btn btn-glass btn-sm" onClick={() => pickServer(notice.undo)}>
-                  {notice.tone === 'warn' ? 'Try' : 'Use'} {getServer(notice.undo).name}
-                </button>
-              )}
               <button className="icon-btn" onClick={() => setNotice(null)} aria-label="Dismiss">
                 <I.X width={16} height={16} />
               </button>
@@ -431,7 +331,7 @@ export default function Watch({ type }) {
               <select className="select" value={drawerSeason} onChange={(e) => setDrawerSeason(Number(e.target.value))}>
                 {seasons.map((s) => (
                   <option key={s.season} value={s.season}>
-                    {s.season === 0 ? 'Specials' : `Season ${s.season}`}
+                    {seasons.length === 1 ? 'All episodes' : `Season ${s.season}`}
                   </option>
                 ))}
               </select>
@@ -444,7 +344,7 @@ export default function Watch({ type }) {
                 const active = drawerSeason === season && ep.episode === episode;
                 const p = entry?.episodes?.[`${drawerSeason}:${ep.episode}`];
                 return (
-                  <button key={ep.id || ep.episode} className={`drawer-ep ${active ? 'active' : ''}`} onClick={() => go({ s: drawerSeason, e: ep.episode })}>
+                  <button key={`${ep.id}-${ep.file || ''}-${ep.episode}`} className={`drawer-ep ${active ? 'active' : ''}`} onClick={() => go({ s: drawerSeason, e: ep.episode })}>
                     <div className="drawer-still">
                       <Img srcs={[ep.thumbnail, item.background]} alt="" loading="lazy" />
                       {active && <span className="now-playing">Playing</span>}
@@ -458,7 +358,7 @@ export default function Watch({ type }) {
                       <strong>
                         {ep.episode}. {ep.name || `Episode ${ep.episode}`}
                       </strong>
-                      <small>{(ep.released || ep.firstAired || '').slice(0, 10)}</small>
+                      <small>{ep.runtime || (ep.released || '').slice(0, 4)}</small>
                     </div>
                   </button>
                 );
@@ -469,4 +369,11 @@ export default function Watch({ type }) {
       </div>
     </div>
   );
+}
+
+function fmt(sec) {
+  const s = Math.floor(sec % 60);
+  const mm = Math.floor(sec / 60) % 60;
+  const h = Math.floor(sec / 3600);
+  return `${h ? `${h}:` : ''}${h ? String(mm).padStart(2, '0') : mm}:${String(s).padStart(2, '0')}`;
 }

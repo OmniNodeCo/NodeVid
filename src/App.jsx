@@ -11,6 +11,7 @@ import MyList from './pages/MyList.jsx';
 import Settings from './pages/Settings.jsx';
 import NotFound from './pages/NotFound.jsx';
 import NewPopular from './pages/NewPopular.jsx';
+import About from './pages/About.jsx';
 import Profiles from './pages/Profiles.jsx';
 import { CategoriesIndex, CategoryPage } from './pages/Categories.jsx';
 import { PreviewProvider } from './components/Preview.jsx';
@@ -49,6 +50,8 @@ export default function App() {
           <Route path="/list" element={<MyList />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/new" element={<NewPopular />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/legal" element={<Navigate to="/about" replace />} />
           <Route path="/latest" element={<Navigate to="/new" replace />} />
           <Route path="/categories" element={<CategoriesIndex />} />
           <Route path="/category/:id" element={<CategoryPage />} />

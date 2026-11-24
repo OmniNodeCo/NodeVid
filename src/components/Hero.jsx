@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { isUpcoming, matchScore, releaseLabel, sized } from '../lib/catalog.js';
+import { isUpcoming, matchScore, releaseLabel, resolveStream, sized } from '../lib/catalog.js';
 import { inList, likedGenres, toggleList, useList, useProgress, useRatings, useSettings, watchHref } from '../lib/store.js';
 import Img from './Img.jsx';
 import * as I from './Icons.jsx';
@@ -19,44 +19,66 @@ const allowPreviews = () =>
   !navigator.connection?.saveData;
 
 /**
- * Muted, chrome-less YouTube trailer that fills its parent. Talks to the
- * player with the IFrame API's postMessage protocol (no script needed).
+ * Muted, chrome-less clip of the film itself (streamed from archive.org),
+ * used as a moving backdrop — the legal stand-in for a trailer.
  */
-export function TrailerBackdrop({ ytId, muted, visible, onEnded, start = 0 }) {
+export function VideoBackdrop({ item, muted, visible, onEnded }) {
   const ref = useRef(null);
+  const [src, setSrc] = useState(null);
   const [ready, setReady] = useState(false);
-  const send = (func, args = []) => ref.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
 
   useEffect(() => {
-    const onMsg = (e) => {
-      if (!/youtube/.test(e.origin) || e.source !== ref.current?.contentWindow) return;
-      let d = e.data;
-      try {
-        d = typeof d === 'string' ? JSON.parse(d) : d;
-      } catch {
-        return;
-      }
-      const st = d?.info?.playerState ?? (d?.event === 'onStateChange' ? d.info : undefined);
-      if (st === 1) setReady(true);
-      if (st === 0 || d?.event === 'onError') onEnded?.();
+    let alive = true;
+    setSrc(null);
+    setReady(false);
+    resolveStream(item.type, item.id, 1, 1)
+      .then((s) => {
+        if (!alive) return;
+        // Prefer a small file for previews.
+        const small = [...s.sources].sort((a, b) => (a.height || 999) - (b.height || 999)).find((x) => x.type === 'video/mp4') || s.sources[0];
+        setSrc(small?.src || null);
+      })
+      .catch(() => alive && onEnded?.());
+    return () => {
+      alive = false;
     };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, [onEnded]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
 
-  useEffect(() => send(muted ? 'mute' : 'unMute'), [muted, ready]);
-  useEffect(() => send(visible ? 'playVideo' : 'pauseVideo'), [visible, ready]);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = muted;
+  }, [muted, src]);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || !ready) return;
+    if (visible) v.play().catch(() => {});
+    else v.pause();
+  }, [visible, ready]);
 
-  const origin = encodeURIComponent(window.location.origin);
+  // Stop after ~45 seconds, like a trailer.
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => onEnded?.(), 45000);
+    return () => clearTimeout(t);
+  }, [ready, onEnded]);
+
+  if (!src) return null;
   return (
     <div className={`trailer-bg ${ready ? 'ready' : ''}`}>
-      <iframe
+      <video
         ref={ref}
-        src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1&rel=0&iv_load_policy=3&cc_load_policy=0&enablejsapi=1&start=${start}&origin=${origin}`}
-        title="Trailer preview"
-        allow="autoplay; encrypted-media"
+        src={`${src}#t=${item.start || 0}`}
+        muted
+        autoPlay
+        playsInline
+        preload="auto"
         tabIndex={-1}
-        onLoad={() => ref.current?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*')}
+        aria-hidden="true"
+        onPlaying={() => setReady(true)}
+        onEnded={() => onEnded?.()}
+        onError={() => onEnded?.()}
       />
     </div>
   );
@@ -93,6 +115,7 @@ export default function Hero({ items }) {
   const inView = useInView(ref);
 
   const slides = (items || []).filter((x) => x.background).slice(0, 8);
+  const endPreview = useCallback(() => setPreview('ended'), []);
   const item = slides[index];
 
   useEffect(() => setIndex(0), [items]);
@@ -100,7 +123,7 @@ export default function Hero({ items }) {
 
   // Start the muted trailer after the backdrop has been on screen a moment.
   useEffect(() => {
-    if (!item?.trailer || !settings.previews || preview !== 'idle' || !inView || !allowPreviews()) return;
+    if (!item || item.upcoming || !settings.previews || preview !== 'idle' || !inView || !allowPreviews()) return;
     const t = setTimeout(() => setPreview('playing'), 2800);
     return () => clearTimeout(t);
   }, [item, settings.previews, preview, inView]);
@@ -126,7 +149,7 @@ export default function Hero({ items }) {
           {Math.abs(i - index) <= 1 || i === 0 ? <Img srcs={sized(s.background, 'large')} alt="" /> : null}
         </div>
       ))}
-      {playing && <TrailerBackdrop key={item.id} ytId={item.trailer} muted={muted} visible={inView} onEnded={() => setPreview('ended')} />}
+      {playing && <VideoBackdrop key={item.id} item={item} muted={muted} visible={inView} onEnded={endPreview} />}
       <div className="hero-shade" />
       <div className="hero-content" key={item.id}>
         <TitleLogo item={item} />
@@ -135,12 +158,12 @@ export default function Hero({ items }) {
             <span className="top10-badge">
               TOP<b>10</b>
             </span>
-            #{item.rank} in {item.type === 'tv' ? 'TV Shows' : 'Movies'} Today
+            #{item.rank} Most Watched {item.type === 'tv' ? 'Series' : 'Movie'}
           </div>
         )}
         <div className="meta-line">
           {upcoming ? (
-            <span className="coming">Coming {releaseLabel(item.date || item.released)}</span>
+            <span className="coming">Public domain {releaseLabel(item.date || item.released)}</span>
           ) : (
             match && <span className="match">{match}% Match</span>
           )}
@@ -170,11 +193,11 @@ export default function Hero({ items }) {
         </div>
       </div>
       <div className="hero-side">
-        {item.trailer && settings.previews && preview !== 'idle' && (
+        {!item.upcoming && settings.previews && preview !== 'idle' && (
           <button
             className="round-btn round-btn-lg"
             onClick={() => (playing ? setMuted((m) => !m) : (setMuted(false), setPreview('playing')))}
-            aria-label={playing ? (muted ? 'Unmute' : 'Mute') : 'Replay trailer'}
+            aria-label={playing ? (muted ? 'Unmute' : 'Mute') : 'Replay preview'}
           >
             {playing ? muted ? <I.VolumeX width={20} height={20} /> : <I.Volume width={20} height={20} /> : <I.Replay width={20} height={20} />}
           </button>

@@ -63,7 +63,9 @@ export const profilesStore = createStore('nv2:profiles', {
 });
 export const useProfiles = () => useSyncExternalStore(profilesStore.subscribe, profilesStore.get);
 
-const prefixFor = (pid) => (pid === 'main' ? 'nv2:' : `nv2:${pid}:`);
+// Per-profile data lives under 'nv3:' since the switch to the public-domain
+// library (older 'nv2:' lists pointed at titles that are no longer offered).
+const prefixFor = (pid) => (pid === 'main' ? 'nv3:' : `nv3:${pid}:`);
 let prefix = prefixFor(profilesStore.get().active);
 
 export function activeProfile(state = profilesStore.get()) {
@@ -96,21 +98,13 @@ export function deleteProfile(pid) {
 export const needsProfilePick = () => profilesStore.get().list.length > 1 && !sessionStorage.getItem('nv2:picked');
 
 export const DEFAULT_SETTINGS = {
-  color: 'e50914',
   previews: true,
   autoPlay: true,
-  nextEpisode: true,
-  episodeSelector: true,
   autoNext: true,
-  server: 'vidking',
-  autoServer: true,
-  minHD: true,
-  subLang: '',
+  quality: 'auto',
 };
 
 export const settingsStore = createStore('nv2:settings', DEFAULT_SETTINGS);
-// The old purple default -> new Netflix red default.
-if (settingsStore.get().color === '8b6cff') settingsStore.set((s) => ({ ...s, color: 'e50914' }));
 export const listStore = createStore(prefix + 'list', []);
 export const progressStore = createStore(prefix + 'progress', {});
 export const remindStore = createStore(prefix + 'reminders', []);
@@ -137,7 +131,7 @@ export const slim = (item, type) => ({
   logo: item.logo || null,
   rating: item.rating || 0,
   year: item.year || '',
-  tmdbId: item.tmdbId || null,
+  kids: Boolean(item.kids),
 });
 
 export function toggleList(item, type) {

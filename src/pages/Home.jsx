@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Hero from '../components/Hero.jsx';
 import Row, { CategoryRow, ComingSoonRow, Scroller, Top10Row } from '../components/Row.jsx';
-import { ContinueCard, PosterCard } from '../components/Card.jsx';
-import { catalog, meta, newReleases, normalize } from '../lib/catalog.js';
+import { ContinueCard } from '../components/Card.jsx';
+import { catalog, COUNTS, getItem } from '../lib/catalog.js';
 import { kidSafe } from '../lib/categories.js';
-import { vidsrcLatest } from '../lib/servers.js';
 import { activeProfile, continueList, useList, useProfiles, useProgress, useRatings } from '../lib/store.js';
 
 export function ContinueRow({ name }) {
   const progress = useProgress();
-  const items = continueList(progress);
+  const items = continueList(progress).filter((e) => getItem(e.id));
   if (!items.length) return null;
   return (
     <section className="row">
@@ -28,12 +27,12 @@ export function ContinueRow({ name }) {
 
 function MyListRow({ filter }) {
   const list = useList();
-  const items = filter ? list.filter(filter) : list;
+  const items = list.filter((x) => getItem(x.id) && (!filter || filter(x)));
   if (!items.length) return null;
-  return <Row title="My List" items={items} more="/list" />;
+  return <Row title="My List" items={items.map((x) => getItem(x.id))} more="/list" />;
 }
 
-/** "Because you watched X" / "Because you liked X" — top titles in the same genre. */
+/** "Because you watched X" / "Because you liked X" — more in the same genre. */
 function BecauseRows({ kids }) {
   const progress = useProgress();
   const ratings = useRatings();
@@ -43,35 +42,22 @@ function BecauseRows({ kids }) {
     const liked = Object.values(ratings)
       .filter((r) => r.value > 0)
       .sort((a, b) => b.value - a.value || b.at - a.at);
-    if (liked[0]) out.push({ verb: liked[0].value === 2 ? 'loved' : 'liked', item: liked[0] });
-    for (const w of watched) if (out.length < 2 && !out.some((o) => o.item.id === w.id)) out.push({ verb: 'watched', item: w });
-    return out;
+    if (liked[0]) out.push({ verb: liked[0].value === 2 ? 'loved' : 'liked', id: liked[0].id });
+    for (const w of watched) if (out.length < 2 && !out.some((o) => o.id === w.id)) out.push({ verb: 'watched', id: w.id });
+    return out.map((o) => ({ ...o, item: getItem(o.id) })).filter((o) => o.item);
     // Only compute on mount so rows don't jump while you watch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [genres, setGenres] = useState({});
-
-  // Progress entries don't store genres; look them up once.
-  useEffect(() => {
-    seeds.forEach(({ item }) => {
-      if (item.genres?.length) return setGenres((g) => ({ ...g, [item.id]: item.genres }));
-      meta(item.type, item.id)
-        .then((m) => setGenres((g) => ({ ...g, [item.id]: normalize(m, item.type).genres })))
-        .catch(() => {});
-    });
-  }, [seeds]);
 
   const hidden = new Set([...Object.values(progress).map((p) => p.id), ...Object.values(ratings).map((r) => r.id)]);
   return seeds.map(({ verb, item }, i) => {
-    const g = genres[item.id]?.[i % 2 === 0 ? 0 : 1] || genres[item.id]?.[0];
+    const g = item.genres.filter((x) => x !== 'Silent' && x !== 'Short')[i % 2] || item.genres[0];
     if (!g) return null;
     return (
       <Row
         key={`because-${item.id}`}
         title={`Because you ${verb} ${item.title}`}
-        type={item.type}
-        query={{ list: i % 2 ? 'imdbRating' : 'top', genre: g }}
-        filter={(x) => !hidden.has(x.id) && (!kids || kidSafe(x))}
+        load={() => catalog(undefined, { genre: g, filter: (x) => !hidden.has(x.id) && (!kids || kidSafe(x)) })}
       />
     );
   });
@@ -81,7 +67,7 @@ function MobileChips() {
   return (
     <div className="home-chips">
       <Link to="/tv" className="chip">
-        TV Shows
+        Series
       </Link>
       <Link to="/movies" className="chip">
         Movies
@@ -93,40 +79,37 @@ function MobileChips() {
   );
 }
 
-const newEpisodeCard = (it) => (
-  <PosterCard key={`ep-${it.id}`} item={it} href={`/watch/tv/${it.id}/${it.season}/${it.episode}`} sub={`S${it.season} E${it.episode}`} badge={it.quality} ribbon="New Episode" />
-);
+function LegalBanner() {
+  return (
+    <div className="legal-banner">
+      <strong>100% legal streaming.</strong> {COUNTS.movies} films and {COUNTS.series} series, all in the public domain or openly licensed, streamed free from the{' '}
+      <a href="https://archive.org" target="_blank" rel="noreferrer">
+        Internet Archive
+      </a>
+      . <Link to="/about">How we choose titles</Link>
+    </div>
+  );
+}
 
 function KidsHome({ me }) {
   const [hero, setHero] = useState(null);
   useEffect(() => {
-    Promise.all([catalog('movie', { genre: 'Family' }).catch(() => []), catalog('tv', { genre: 'Animation' }).catch(() => [])]).then(([m, t]) => {
-      const mixed = [];
-      const ms = m.filter(kidSafe);
-      const ts = t.filter(kidSafe);
-      for (let i = 0; i < 5; i++) mixed.push(ms[i], ts[i]);
-      setHero(mixed.filter(Boolean));
-    });
+    catalog(undefined, { filter: kidSafe }).then((x) => setHero(x.filter((i) => !i.genres.includes('Short')).slice(0, 8)));
   }, []);
-  const family = (x) => kidSafe(x) && x.genres?.some((g) => g === 'Family' || g === 'Animation');
   return (
     <div className="page-home">
       <MobileChips />
       <Hero items={hero} />
       <div className="rows">
         <ContinueRow name={me.name} />
-        <Top10Row type="movie" title="Top 10 Family Movies Today" query={{ genre: 'Family' }} filter={kidSafe} />
+        <Top10Row type="movie" title="Top 10 Family Favorites" filter={kidSafe} />
         <CategoryRow id="cartoons" title="Cartoons Everyone Loves" kids />
-        <ComingSoonRow filter={family} />
-        <MyListRow filter={kidSafe} />
+        <MyListRow filter={(x) => getItem(x.id)?.kids} />
         <BecauseRows kids />
-        <CategoryRow id="family" kids />
-        <CategoryRow id="animated-movies" kids />
-        <Top10Row type="tv" title="Top 10 Kids Shows Today" query={{ genre: 'Animation' }} filter={kidSafe} />
-        <CategoryRow id="kids-tv" kids />
-        <CategoryRow id="family-adventures" kids />
-        <CategoryRow id="family-fantasy" kids />
-        <CategoryRow id="anime-movies" title="Anime Adventures" kids />
+        <CategoryRow id="kids-laughs" kids />
+        <CategoryRow id="kids-adventure" kids />
+        <CategoryRow id="kids-westerns" kids />
+        <CategoryRow id="kids-all" kids />
       </div>
     </div>
   );
@@ -137,17 +120,15 @@ export default function Home() {
   const [popular, setPopular] = useState(null);
 
   useEffect(() => {
-    document.title = 'NodeVid — Watch Movies & TV Shows';
+    document.title = 'NodeVid — Free, Legal Classic Movies & TV';
     if (me.kids) return;
-    Promise.all([catalog('movie').catch(() => []), catalog('tv').catch(() => [])]).then(([m, t]) => {
+    Promise.all([catalog('movie', { filter: (x) => !x.genres.includes('Short') }), catalog('tv')]).then(([m, t]) => {
       const mixed = [];
       for (let i = 0; i < 4; i++) {
         if (m[i]) mixed.push({ ...m[i], rank: i + 1 });
-        if (t[i]) mixed.push({ ...t[i], rank: i + 1 });
+        if (i < 2 && t[i]) mixed.push({ ...t[i], rank: i + 1 });
       }
-      const trending = [];
-      for (let i = 10; i < 30; i++) trending.push(t[i], m[i]);
-      setPopular({ mixed, trending: trending.filter(Boolean) });
+      setPopular({ mixed });
     });
   }, [me.kids]);
 
@@ -158,42 +139,27 @@ export default function Home() {
       <MobileChips />
       <Hero items={popular?.mixed} />
       <div className="rows">
+        <LegalBanner />
         <ContinueRow name={me.name} />
         <Top10Row type="movie" />
-        <Row title="Trending Now" items={popular?.trending} />
+        <CategoryRow id="trending" />
         <ComingSoonRow />
-        <Row title="New Releases" load={() => newReleases()} card={(it) => <PosterCard key={`nr-${it.id}`} item={it} ribbon={Date.now() - Date.parse(it.released) < 14 * 864e5 ? 'New' : null} />} />
         <MyListRow />
         <BecauseRows />
-        <Row title="New Episodes" load={() => vidsrcLatest('episodes')} card={newEpisodeCard} more="/new?tab=episodes" />
-        <Top10Row type="tv" title="Top 10 TV Shows Today" />
-        <CategoryRow id="binge-worthy" />
-        <CategoryRow id="acclaimed-movies" />
-        <CategoryRow id="superhero" />
-        <CategoryRow id="crime-tv" />
-        <CategoryRow id="comedy" />
-        <CategoryRow id="k-drama" />
-        <CategoryRow id="thriller" />
-        <CategoryRow id="anime" />
-        <CategoryRow id="romcom" />
-        <CategoryRow id="scifi-tv" />
+        <CategoryRow id="series" title="Series & Classic Shorts" />
+        <CategoryRow id="film-noir" />
         <CategoryRow id="horror" />
-        <CategoryRow id="award-winning-movies" />
-        <CategoryRow id="docuseries" />
-        <CategoryRow id="90s" />
-        <CategoryRow id="reality" />
-        <CategoryRow id="british-tv" />
-        <CategoryRow id="family" />
-        <CategoryRow id="biography" />
-        <CategoryRow id="2000s" />
-        <CategoryRow id="bollywood" />
-        <CategoryRow id="documentary" />
-        <CategoryRow id="80s" />
-        <Row
-          title="Recently Added Movies"
-          load={() => vidsrcLatest('movies')}
-          card={(it) => <PosterCard key={`m-${it.id}`} item={it} badge={it.quality} />}
-        />
+        <CategoryRow id="screwball" />
+        <CategoryRow id="silent" />
+        <CategoryRow id="keaton" />
+        <CategoryRow id="sci-fi" />
+        <CategoryRow id="western" />
+        <CategoryRow id="open-movies" />
+        <CategoryRow id="adventure" />
+        <CategoryRow id="cult" />
+        <CategoryRow id="landmarks" />
+        <CategoryRow id="mystery" />
+        <CategoryRow id="kids-all" title="Kids & Family" />
         <div className="rows-foot">
           <Link to="/categories" className="btn btn-glass">
             Browse all categories

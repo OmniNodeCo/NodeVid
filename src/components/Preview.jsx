@@ -112,12 +112,12 @@ function PreviewCard({ state, onEnter, onLeave }) {
         </div>
         <div className="preview-meta">
           {upcoming ? (
-            <span className="coming">Coming {releaseLabel(item.date || item.released)}</span>
+            <span className="coming">Free to stream {releaseLabel(item.date || item.released)}</span>
           ) : (
             match && <span className="match">{match}% Match</span>
           )}
           {item.year && <span>{item.year}</span>}
-          <span className="hd">{extra?.badge || 'HD'}</span>
+          <span className="hd" title={item.license && item.license !== 'pd' ? 'Creative Commons' : 'Public domain'}>{extra?.badge || (item.license === 'cc-by' ? 'CC BY' : item.license === 'cc0' ? 'CC0' : 'PD')}</span>
           <span>{extra?.sub || (item.type === 'tv' ? 'Series' : item.runtime || 'Movie')}</span>
         </div>
         {item.genres?.length > 0 && (

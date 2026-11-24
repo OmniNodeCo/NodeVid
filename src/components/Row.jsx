@@ -114,7 +114,7 @@ export default function Row({ title, type, query, load, items: given, more, excl
 export function Top10Row({ type, title, filter, query }) {
   return (
     <Row
-      title={title || `Top 10 ${type === 'tv' ? 'Series' : 'Movies'} Today`}
+      title={title || `Top 10 Most-Watched ${type === 'tv' ? 'Series' : 'Movies'}`}
       load={() => catalog(type, { list: 'top', ...(query || {}) })}
       filter={filter}
       limit={10}
@@ -138,11 +138,11 @@ export function CategoryRow({ id, title, kids }) {
   );
 }
 
-/** Upcoming releases with their dates. */
+/** Films that join the US public domain next Public Domain Day. */
 export function ComingSoonRow({ filter }) {
   return (
     <Row
-      title="Coming Soon"
+      title="Coming Soon: Public Domain Day"
       load={comingSoon}
       filter={filter}
       more="/new"
@@ -152,7 +152,7 @@ export function ComingSoonRow({ filter }) {
           key={`cs-${it.id}`}
           item={it}
           label={it.date ? releaseLabel(it.date) : 'Coming soon'}
-          sub={it.kind === 'season' ? `Season ${it.season} premiere` : it.kind === 'series' ? 'New series' : 'New movie'}
+          sub={`${it.year} · enters the public domain`}
         />
       )}
     />

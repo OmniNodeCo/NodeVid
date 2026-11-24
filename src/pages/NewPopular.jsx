@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { catalog, comingSoon, isUpcoming, newReleases, releaseLabel, sized } from '../lib/catalog.js';
+import { catalog, comingSoon, isUpcoming, releaseLabel, sized } from '../lib/catalog.js';
 import { kidSafe } from '../lib/categories.js';
-import { vidsrcLatest } from '../lib/servers.js';
 import { activeProfile, inList, toggleList, useList, useProfiles, useProgress, watchHref } from '../lib/store.js';
 import Img from '../components/Img.jsx';
 import { RemindButton } from '../components/Preview.jsx';
@@ -11,11 +10,10 @@ import * as I from '../components/Icons.jsx';
 
 const TABS = [
   { id: 'coming', label: 'Coming Soon', emoji: '🍿' },
-  { id: 'new', label: 'New Releases', emoji: '✨' },
-  { id: 'watching', label: "Everyone's Watching", emoji: '🔥' },
-  { id: 'top-tv', label: 'Top 10 TV Shows', emoji: '🔟' },
+  { id: 'watching', label: 'Trending This Week', emoji: '🔥' },
   { id: 'top-movies', label: 'Top 10 Movies', emoji: '🔟' },
-  { id: 'episodes', label: 'New Episodes', emoji: '📺' },
+  { id: 'top-tv', label: 'Top 10 Series', emoji: '🔟' },
+  { id: 'open', label: 'Open Movies', emoji: '🎬' },
 ];
 
 function DateCol({ date }) {
@@ -78,20 +76,13 @@ function Feature({ item, showDate, label }) {
               (upcoming
                 ? item.kind === 'season'
                   ? `Season ${item.season} coming ${releaseLabel(date)}`
-                  : date
-                    ? `Coming ${releaseLabel(date) === 'Today' ? 'today' : `on ${new Date(date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}`}`
-                    : 'Release date to be announced'
-                : item.released
-                  ? `Released ${new Date(item.released).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`
-                  : item.type === 'tv'
-                    ? 'Series'
-                    : 'Movie')}
+                  : `A ${item.year} film entering the US public domain on ${new Date(date).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}`
+                : `${item.year}${item.runtime ? ` · ${item.runtime}` : ''} · ${item.type === 'tv' ? 'Series' : 'Movie'}`)}
           </div>
           <h3>{item.title}</h3>
           <p>{item.description}</p>
           <div className="cs-genres">
-            {item.kind === 'season' && <span className="cs-tag">New Season</span>}
-            {item.kind === 'series' && <span className="cs-tag">New Series</span>}
+            {upcoming && <span className="cs-tag">Public Domain Day</span>}
             {item.genres.slice(0, 4).map((g) => (
               <span key={g}>{g}</span>
             ))}
@@ -136,16 +127,10 @@ function Tab({ tab, kids }) {
   const filt = (arr) => (kids ? arr.filter(kidSafe) : arr);
   const loaders = {
     coming: comingSoon,
-    new: () => newReleases(),
-    watching: async () => {
-      const [m, t] = await Promise.all([catalog('movie'), catalog('tv')]);
-      const out = [];
-      for (let i = 0; i < 10; i++) out.push(t[i], m[i]);
-      return out.filter(Boolean);
-    },
+    watching: () => catalog(undefined, { list: 'week', limit: 20 }),
     'top-tv': () => catalog('tv', { list: 'top' }),
     'top-movies': () => catalog('movie', { list: 'top' }),
-    episodes: () => vidsrcLatest('episodes'),
+    open: () => catalog(undefined, { list: 'newest', filter: (x) => x.license !== 'pd' }),
   };
   const { data, error } = useLoad(loaders[tab], tab);
   const items = useMemo(() => (data ? filt(data) : null), [data, kids]);
@@ -163,19 +148,10 @@ function Tab({ tab, kids }) {
       </div>
     );
   }
-  if (tab === 'episodes') {
-    return (
-      <div className="grid">
-        {items.map((it) => (
-          <PosterCard key={it.id} item={it} href={`/watch/tv/${it.id}/${it.season}/${it.episode}`} sub={`S${it.season} E${it.episode}`} badge={it.quality} />
-        ))}
-      </div>
-    );
-  }
   return (
     <div className="cs-list">
       {items.slice(0, 40).map((it, i) => (
-        <Feature key={`${it.id}-${it.season || ''}`} item={it} showDate={tab === 'coming'} label={tab === 'watching' ? `#${i + 1} today · ${it.type === 'tv' ? 'Series' : 'Movie'}` : null} />
+        <Feature key={`${it.id}-${it.season || ''}`} item={it} showDate={tab === 'coming'} label={tab === 'watching' ? `#${i + 1} this week · ${it.type === 'tv' ? 'Series' : 'Movie'}` : tab === 'open' ? it.credit : null} />
       ))}
     </div>
   );
@@ -193,6 +169,11 @@ export default function NewPopular() {
   return (
     <div className="container page-pad newpop">
       <h1 className="page-title">New &amp; Popular</h1>
+      {tab === 'coming' && (
+        <p className="muted page-sub">
+          Every January 1, a new year of films enters the US public domain. These 1931 classics are next, on January 1, 2027. They can&apos;t be streamed legally until then — tap Remind Me to get a heads-up on the day.
+        </p>
+      )}
       <div className="np-tabs" role="tablist">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={t.id === tab} className={`np-tab ${t.id === tab ? 'active' : ''}`} onClick={() => setSp(t.id === 'coming' ? {} : { tab: t.id }, { replace: true })}>

@@ -137,7 +137,7 @@ export function Logo() {
 
 const links = [
   { to: '/', label: 'Home', icon: I.Home, end: true },
-  { to: '/tv', label: 'TV Shows', icon: I.Tv },
+  { to: '/tv', label: 'Series', icon: I.Tv },
   { to: '/movies', label: 'Movies', icon: I.Film },
   { to: '/new', label: 'New & Popular', short: 'New & Hot', icon: I.Flame },
   { to: '/animation', label: 'Animation', icon: I.Sparkles, desktop: true },
@@ -199,7 +199,7 @@ export default function Navbar() {
           <div className="nav-right">
             <label className="nav-search">
               <I.Search width={18} height={18} />
-              <input ref={inputRef} value={q} onChange={onChange} placeholder="Search titles or paste an ID" aria-label="Search" />
+              <input ref={inputRef} value={q} onChange={onChange} placeholder="Search classics" aria-label="Search" />
               {!q && <kbd>/</kbd>}
             </label>
             <Link to="/search" className="icon-btn nav-search-mobile" aria-label="Search">

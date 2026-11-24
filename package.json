@@ -2,7 +2,7 @@
   "name": "nodevid",
   "version": "1.0.0",
   "private": true,
-  "description": "A Cineby-style streaming site for movies and TV shows powered by TMDB metadata and the Vidking player.",
+  "description": "A Netflix-style site for free, legal classic movies and TV: public-domain and Creative Commons titles streamed from the Internet Archive.",
   "type": "module",
   "scripts": {
     "dev": "vite",

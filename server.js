@@ -3,8 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// NodeVid is a fully static front-end: catalog data comes from the public
-// Cinemeta API and playback from the Vidking embed — no API keys required.
+// NodeVid is a fully static front-end: the catalog is a curated list of
+// public-domain / Creative Commons titles streamed from the Internet Archive.
 // This server just serves the built app with SPA routing.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

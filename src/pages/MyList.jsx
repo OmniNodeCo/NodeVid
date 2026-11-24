@@ -53,7 +53,7 @@ export default function MyList() {
               {[
                 ['all', 'All'],
                 ['movie', 'Movies'],
-                ['tv', 'TV Shows'],
+                ['tv', 'Series'],
               ].map(([k, l]) => (
                 <button key={k} className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>
                   {l}

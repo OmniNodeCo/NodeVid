@@ -1,112 +1,290 @@
-// Keyless metadata from Cinemeta (Stremio's public catalog API).
-// It returns IMDb ids plus the matching TMDB id (`moviedb_id`), which is what
-// the Vidking embed expects — so no API key is required anywhere.
+// Catalog + streams, backed only by the curated public-domain / openly
+// licensed library in ./library.js and the Internet Archive's public APIs.
+// No API key, no third-party embeds: video files are played directly from
+// archive.org with the browser's own <video> element.
 
-const BASE = 'https://v3-cinemeta.strem.io';
-const cache = new Map();
+import { COMING_PD, LIBRARY, LICENSES, PD_DAY } from './library.js';
 
-function get(url) {
-  if (cache.has(url)) return cache.get(url);
-  const p = fetch(url).then((r) => {
-    if (!r.ok) throw new Error(`Catalog error ${r.status}`);
-    return r.json();
-  });
-  p.catch(() => cache.delete(url));
-  cache.set(url, p);
-  return p;
+const IA = 'https://archive.org';
+
+/** archive.org thumbnail for an item. */
+export const thumb = (id) => (id ? `${IA}/services/img/${encodeURIComponent(id)}` : null);
+/** Public page for an item on archive.org. */
+export const archiveUrl = (id) => `${IA}/details/${encodeURIComponent(id)}`;
+/** Direct file URL. */
+export const fileUrl = (id, name) => `${IA}/download/${encodeURIComponent(id)}/${name.split('/').map(encodeURIComponent).join('/')}`;
+
+/** Kept for compatibility with components that ask for bigger image sizes. */
+export function sized(url) {
+  return url ? [url] : [];
 }
 
-/** our route type ('movie' | 'tv') -> Cinemeta type */
-export const ctype = (t) => (t === 'tv' ? 'series' : 'movie');
+// ---------- items ----------
 
-/** Bigger variants of metahub images, with the original as fallback. */
-export function sized(url, size) {
-  if (!url) return [];
-  const big = url.replace(/\/(poster|background|logo)\/(small|medium|large)\//, `/$1/${size}/`);
-  return big === url ? [url] : [big, url];
-}
+const archiveIdOf = (e) => e.item || e.episodes?.[0]?.id || e.id;
 
-export function normalize(m, typeHint) {
-  if (!m) return null;
-  const type = m.type === 'series' ? 'tv' : m.type === 'movie' ? 'movie' : typeHint;
-  return {
-    id: m.imdb_id || m.id,
-    type,
-    title: m.name || '',
-    poster: m.poster || null,
-    background: m.background || null,
-    logo: m.logo || null,
-    year: String(m.releaseInfo || m.year || '').slice(0, 4),
-    yearRange: String(m.releaseInfo || m.year || ''),
-    rating: parseFloat(m.imdbRating) || 0,
-    genres: m.genres || m.genre || [],
-    description: m.description || '',
-    tmdbId: m.moviedb_id || null,
-    runtime: m.runtime || '',
-    released: m.released || null,
-    country: m.country || '',
-    awards: m.awards || '',
-    trailer: trailerOf(m),
-    ...(m.videos ? episodeDates(m.videos) : {}),
+/** Turn a library entry into the item shape the UI uses. */
+export function normalize(e) {
+  if (!e) return null;
+  if (e.__item) return e.__item;
+  const img = thumb(e.poster || archiveIdOf(e));
+  const lic = e.license || 'pd';
+  const item = {
+    id: e.id,
+    type: e.type,
+    title: e.title,
+    poster: img,
+    background: img,
+    logo: null,
+    year: e.year ? String(e.year) : '',
+    yearRange: e.yearRange || (e.year ? String(e.year) : ''),
+    rating: 0,
+    genres: e.genres || [],
+    description: e.desc || '',
+    runtime: e.runtime || '',
+    released: e.date || null,
+    kids: Boolean(e.kids),
+    license: lic,
+    licenseLabel: LICENSES[lic]?.label,
+    credit: e.credit || null,
+    archiveId: archiveIdOf(e),
+    start: e.start || 0,
+    episodeCount: e.episodes?.length || null,
+    trailer: null,
+    ...(e.upcoming ? { date: e.date, kind: 'movie', upcoming: true } : {}),
   };
+  Object.defineProperty(e, '__item', { value: item, enumerable: false });
+  return item;
 }
 
-/** YouTube id of the main trailer, if any. */
-export function trailerOf(m) {
-  return m?.trailers?.find((t) => t.type === 'Trailer')?.source || m?.trailers?.[0]?.source || m?.trailerStreams?.[0]?.ytId || null;
-}
+const COMING = COMING_PD.map((c) => ({ ...c, type: 'movie', date: PD_DAY, upcoming: true, runtime: '' }));
+const BY_ID = new Map([...LIBRARY, ...COMING].map((e) => [e.id, e]));
 
-/** For series: next upcoming episode and the season premiere it belongs to. */
-function episodeDates(videos) {
-  const now = Date.now();
-  let next = null;
-  for (const v of videos) {
-    const t = Date.parse(v.released || v.firstAired);
-    const s = Number(v.season);
-    if (!t || t <= now || !s) continue;
-    if (!next || t < next.t) next = { t, season: s, episode: Number(v.episode ?? v.number) };
+/** Library entry by id (including Coming Soon titles). */
+export const getEntry = (id) => BY_ID.get(String(id)) || null;
+/** Normalized item by id. */
+export const getItem = (id) => normalize(getEntry(id));
+
+export const ALL = LIBRARY.map(normalize);
+export const COUNTS = {
+  movies: ALL.filter((x) => x.type === 'movie').length,
+  series: ALL.filter((x) => x.type === 'tv').length,
+  episodes: LIBRARY.reduce((n, e) => n + (e.episodes?.length || 0), 0),
+};
+
+// ---------- popularity (real Internet Archive download counts) ----------
+
+const STATS_KEY = 'nv2:iastats';
+let statsPromise = null;
+
+/**
+ * Download counts for every library item: { [libraryId]: { all, week } }.
+ * One or two small search API calls, cached for 12h in localStorage.
+ */
+export function loadStats() {
+  if (statsPromise) return statsPromise;
+  try {
+    const c = JSON.parse(localStorage.getItem(STATS_KEY) || 'null');
+    if (c && Date.now() - c.at < 12 * 36e5 && c.v === 2) return (statsPromise = Promise.resolve(c.stats));
+  } catch {
+    /* ignore */
   }
-  return next ? { nextEp: { date: new Date(next.t).toISOString(), season: next.season, episode: next.episode } } : {};
+  const owner = new Map();
+  for (const e of LIBRARY) for (const id of e.episodes ? e.episodes.map((x) => x.id) : [archiveIdOf(e)]) owner.set(id, e.id);
+  const ids = [...owner.keys()];
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 60) chunks.push(ids.slice(i, i + 60));
+  statsPromise = Promise.all(
+    chunks.map((c) => {
+      const q = `identifier:(${c.map((i) => `"${i}"`).join(' OR ')})`;
+      return fetch(`${IA}/advancedsearch.php?q=${encodeURIComponent(q)}&fl[]=identifier&fl[]=downloads&fl[]=week&rows=${c.length}&output=json`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .then((d) => d.response?.docs || []);
+    })
+  )
+    .then((pages) => {
+      const stats = {};
+      for (const d of pages.flat()) {
+        const id = owner.get(d.identifier);
+        if (!id) continue;
+        const s = (stats[id] ||= { all: 0, week: 0 });
+        s.all += Number(d.downloads) || 0;
+        s.week += Number(d.week) || 0;
+      }
+      try {
+        localStorage.setItem(STATS_KEY, JSON.stringify({ v: 2, at: Date.now(), stats }));
+      } catch {
+        /* ignore */
+      }
+      return stats;
+    })
+    .catch(() => {
+      statsPromise = null;
+      return {};
+    });
+  return statsPromise;
 }
 
-function extrasPath(extra) {
-  const parts = Object.entries(extra)
-    .filter(([, v]) => v !== undefined && v !== null && v !== '' && v !== 0)
-    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`);
-  return parts.length ? `/${parts.join('&')}` : '';
+/** Wait for stats, but never longer than `ms` (falls back to curated order). */
+const statsSoon = (ms = 2500) => Promise.race([loadStats(), new Promise((r) => setTimeout(() => r({}), ms))]);
+
+const order = new Map(LIBRARY.map((e, i) => [e.id, i]));
+function sortBy(list, how, stats) {
+  const s = (x, k) => stats?.[x.id]?.[k] ?? -1;
+  const arr = [...list];
+  if (how === 'week') arr.sort((a, b) => s(b, 'week') - s(a, 'week') || s(b, 'all') - s(a, 'all'));
+  else if (how === 'newest') arr.sort((a, b) => Number(b.year) - Number(a.year));
+  else if (how === 'oldest') arr.sort((a, b) => Number(a.year) - Number(b.year));
+  else if (how === 'az') arr.sort((a, b) => a.title.localeCompare(b.title));
+  else arr.sort((a, b) => s(b, 'all') - s(a, 'all') || order.get(a.id) - order.get(b.id));
+  return arr;
 }
 
 /**
- * Fetch a catalog page.
- * @param {'movie'|'tv'} type
- * @param {{ list?: 'top'|'imdbRating'|'year', genre?: string, search?: string, skip?: number }} opts
+ * Query the library.
+ * @param {'movie'|'tv'|undefined} type
+ * @param {{ list?: 'top'|'week'|'newest'|'oldest'|'az'|'year'|'decade', genre?: string, filter?: (x)=>boolean, skip?: number, limit?: number }} opts
  */
-export async function catalog(type, { list = 'top', genre, search, skip } = {}) {
-  const url = `${BASE}/catalog/${ctype(type)}/${list}${extrasPath({ genre, search, skip })}.json`;
-  const d = await get(url);
-  return (d.metas || []).map((m) => normalize(m, type)).filter((x) => x && x.id && x.poster);
+export async function catalog(type, { list = 'top', genre, filter, skip = 0, limit = 60 } = {}) {
+  let items = ALL.filter((x) => !type || x.type === type);
+  if (list === 'year' && genre) items = items.filter((x) => x.year === String(genre));
+  else if (list === 'decade' && genre) items = items.filter((x) => decadeOf(x) === String(genre));
+  else if (genre) items = items.filter((x) => x.genres.includes(genre));
+  if (filter) items = items.filter(filter);
+  const how = list === 'year' || list === 'decade' ? 'top' : list;
+  const stats = how === 'top' || how === 'week' ? await statsSoon() : null;
+  return sortBy(items, how, stats).slice(skip, skip + limit);
 }
 
-/** Full metadata for one title (includes episodes for series). */
-export async function meta(type, id) {
-  const d = await get(`${BASE}/meta/${ctype(type)}/${id}.json`);
-  if (!d?.meta) throw new Error('Title not found');
-  return d.meta;
-}
-
-/** Search movies and series together. */
+/** Search titles, descriptions, genres and years. */
 export async function searchAll(query) {
-  const [movies, shows] = await Promise.all([
-    catalog('movie', { search: query }).catch(() => []),
-    catalog('tv', { search: query }).catch(() => []),
-  ]);
-  // interleave so both kinds show up near the top
-  const out = [];
-  for (let i = 0; i < Math.max(movies.length, shows.length); i++) {
-    if (movies[i]) out.push(movies[i]);
-    if (shows[i]) out.push(shows[i]);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const scored = [];
+  for (const x of ALL) {
+    const title = x.title.toLowerCase();
+    const hay = `${title} ${x.description.toLowerCase()} ${x.genres.join(' ').toLowerCase()} ${x.year}`;
+    if (!words.every((w) => hay.includes(w))) continue;
+    const q = words.join(' ');
+    const score = title === q ? 4 : title.startsWith(q) ? 3 : title.includes(q) ? 2 : 1;
+    scored.push([score, x]);
   }
-  return out;
+  const stats = await statsSoon(1200);
+  return scored.sort((a, b) => b[0] - a[0] || (stats[b[1].id]?.all || 0) - (stats[a[1].id]?.all || 0)).map((s) => s[1]);
+}
+
+export const decadeOf = (x) => (x.year ? `${String(x.year).slice(0, 3)}0s` : '');
+
+export const GENRES = [...new Set(ALL.flatMap((x) => x.genres))].sort();
+export const MOVIE_GENRES = [...new Set(ALL.filter((x) => x.type === 'movie').flatMap((x) => x.genres))].sort();
+export const TV_GENRES = [...new Set(ALL.filter((x) => x.type === 'tv').flatMap((x) => x.genres))].sort();
+export const DECADES = [...new Set(ALL.map(decadeOf).filter(Boolean))].sort();
+export const THIS_YEAR = new Date().getFullYear();
+
+// ---------- archive.org metadata & stream selection ----------
+
+const metaCache = new Map();
+/** archive.org item metadata (files, etc.). CORS-enabled, cached. */
+export function iaMetadata(id) {
+  if (!metaCache.has(id)) {
+    const p = fetch(`${IA}/metadata/${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`archive.org error ${r.status}`))))
+      .then((d) => {
+        if (!d || !d.files) throw new Error('Item not found on archive.org');
+        return d;
+      });
+    p.catch(() => metaCache.delete(id));
+    metaCache.set(id, p);
+  }
+  return metaCache.get(id);
+}
+
+// Browser-friendly formats, best first.
+const FORMAT_RANK = { 'h.264 IA': 6, 'h.264': 6, 'h.264 HD': 6, 'MPEG4': 4, 'h.264 MPEG4': 4, '512Kb MPEG4': 3, '256Kb MPEG4': 2, 'WebM': 2, 'Ogg Video': 1 };
+const PLAYABLE = /\.(mp4|m4v|webm|ogv)$/i;
+
+/**
+ * Group an item's files into playable videos:
+ * [{ key, title, length, sources: [{ src, type, height, format }] }]
+ */
+export function playableVideos(id, files) {
+  const groups = new Map();
+  for (const f of files) {
+    if (!PLAYABLE.test(f.name) || !(f.format in FORMAT_RANK)) continue;
+    if (/(^|\/)(sample|trailer)/i.test(f.name)) continue;
+    const key = (f.source === 'derivative' && f.original) || f.name;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+  const out = [];
+  for (const [key, fs] of groups) {
+    fs.sort((a, b) => FORMAT_RANK[b.format] - FORMAT_RANK[a.format] || (Number(b.height) || 0) - (Number(a.height) || 0));
+    const length = Math.max(...fs.map((f) => parseLength(f.length)));
+    out.push({
+      key,
+      title: key.replace(/\.[a-z0-9]+$/i, '').replace(/^.*\//, ''),
+      length,
+      sources: fs.map((f) => ({
+        src: fileUrl(id, f.name),
+        type: /\.ogv$/i.test(f.name) ? 'video/ogg' : /\.webm$/i.test(f.name) ? 'video/webm' : 'video/mp4',
+        height: Number(f.height) || 0,
+        format: f.format,
+      })),
+    });
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+
+function parseLength(v) {
+  if (!v) return 0;
+  if (String(v).includes(':')) return String(v).split(':').reduce((t, n) => t * 60 + Number(n), 0);
+  return Number(v) || 0;
+}
+
+/** Pretty episode title from a file name like "Show - s01e04 - The Dark Room". */
+function episodeTitle(name, series) {
+  let t = name
+    .replace(/\(\d{4}\)/g, '')
+    .replace(/[._]+/g, ' ')
+    .trim();
+  const words = series.title.split(/[\s:(]+/)[0];
+  t = t.replace(new RegExp(`^${words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^-]*?(?=\\b(s\\d+e\\d+|e\\d+|\\d+)\\b)`, 'i'), '');
+  t = t.replace(/^\s*[-–]?\s*(s\d+\s*e\d+|e\d+|\d+)\s*[-–.]?\s*/i, '');
+  return t.replace(/\s+/g, ' ').replace(/^[-–\s]+|[-–\s]+$/g, '') || name;
+}
+
+/**
+ * Full metadata for a title. For series this includes `videos`
+ * ([{ season, episode, title, id, file, thumbnail }]) like before.
+ */
+export async function meta(type, id) {
+  const e = getEntry(id);
+  if (!e) throw new Error('This title isn\u2019t in the NodeVid library.');
+  if (e.type !== 'tv') return e;
+  if (e.episodes) {
+    return {
+      ...e,
+      videos: e.episodes.map((x, i) => ({ season: 1, episode: x.episode || i + 1, title: x.title, name: x.title, id: x.id, released: x.year ? `${x.year}-01-01` : null, thumbnail: thumb(x.id) })),
+    };
+  }
+  const m = await iaMetadata(e.item);
+  const vids = playableVideos(e.item, m.files).filter((v) => !(e.skip && e.skip.test(v.key)));
+  return {
+    ...e,
+    videos: vids.map((v, i) => {
+      const se = v.key.match(/s(\d+)\s*e(\d+)/i);
+      return {
+        season: se ? Number(se[1]) || 1 : 1,
+        episode: se ? Number(se[2]) : i + 1,
+        title: episodeTitle(v.title, e),
+        name: episodeTitle(v.title, e),
+        id: e.item,
+        file: v.key,
+        runtime: v.length ? `${Math.round(v.length / 60)} min` : '',
+        thumbnail: thumb(e.item),
+      };
+    }),
+  };
 }
 
 /** Group a series' videos into seasons: [{ season, episodes: [...] }] */
@@ -114,36 +292,45 @@ export function seasonsOf(m) {
   const map = new Map();
   for (const v of m?.videos || []) {
     const s = Number(v.season);
-    const e = Number(v.episode ?? v.number);
-    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    const ep = Number(v.episode ?? v.number);
+    if (!Number.isFinite(s) || !Number.isFinite(ep)) continue;
     if (!map.has(s)) map.set(s, []);
-    map.get(s).push({ ...v, season: s, episode: e });
+    map.get(s).push({ ...v, season: s, episode: ep });
   }
-  return [...map.entries()]
-    .map(([season, eps]) => ({ season, episodes: eps.sort((a, b) => a.episode - b.episode) }))
-    .sort((a, b) => (a.season === 0 ? 1 : b.season === 0 ? -1 : a.season - b.season));
+  return [...map.entries()].map(([season, eps]) => ({ season, episodes: eps.sort((a, b) => a.episode - b.episode) })).sort((a, b) => a.season - b.season);
 }
 
-export const MOVIE_GENRES = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Mystery', 'Romance', 'Sci-Fi', 'Sport', 'Thriller', 'War', 'Western'];
-export const TV_GENRES = [...MOVIE_GENRES, 'Reality-TV', 'Talk-Show', 'Game-Show'];
+/**
+ * Resolve the actual video for a movie or an episode.
+ * Returns { archiveId, sources: [{src,type,height,format}], length, title }.
+ */
+export async function resolveStream(type, id, season, episode) {
+  const e = getEntry(id);
+  if (!e || e.upcoming) throw new Error('This title isn\u2019t available to stream.');
+  let archiveId = e.id;
+  let file = null;
+  let epInfo = null;
+  if (e.type === 'tv') {
+    const m = await meta('tv', id);
+    epInfo = m.videos.find((v) => Number(v.season) === Number(season) && Number(v.episode) === Number(episode));
+    if (!epInfo) throw new Error('Episode not found.');
+    archiveId = epInfo.id;
+    file = epInfo.file || null;
+  }
+  const md = await iaMetadata(archiveId);
+  const vids = playableVideos(archiveId, md.files);
+  if (!vids.length) throw new Error('No browser-playable video found for this title on archive.org.');
+  // Movies: the main feature is the longest video in the item.
+  const pick = file ? vids.find((v) => v.key === file) : [...vids].sort((a, b) => b.length - a.length)[0];
+  if (!pick) throw new Error('Video file not found on archive.org.');
+  return { archiveId, sources: pick.sources, length: pick.length, title: epInfo?.title || e.title, episode: epInfo };
+}
 
-export const THIS_YEAR = new Date().getFullYear();
-export const YEARS = Array.from({ length: 30 }, (_, i) => String(THIS_YEAR - i));
+// ---------- Coming Soon: Public Domain Day ----------
 
-// ---------- ids ----------
-
-/** True for a bare TMDB numeric id (e.g. from /watch/movie/1078605). */
-export const isTmdbId = (id) => /^\d+$/.test(String(id));
-
-// ---------- multi-page helpers ----------
-
-/** Fetch several 50-item pages of one catalog in parallel and dedupe. */
-export async function catalogPages(type, opts = {}, pages = 2) {
-  const res = await Promise.all(
-    Array.from({ length: pages }, (_, i) => catalog(type, { ...opts, skip: (opts.skip || 0) + i * 50 }).catch(() => []))
-  );
-  const seen = new Set();
-  return res.flat().filter((x) => !seen.has(x.id) && seen.add(x.id));
+/** Films joining the US public domain on Jan 1 (not streamable before then). */
+export async function comingSoon() {
+  return COMING.map(normalize);
 }
 
 const dayStart = () => {
@@ -152,64 +339,10 @@ const dayStart = () => {
   return d.getTime();
 };
 
-/**
- * Upcoming releases: movies and new series dated after today (from the
- * current-year catalogs), plus season premieres of popular shows.
- * Returns [{ ...item, date, kind: 'movie'|'series'|'season', season? }] sorted by date.
- */
-export async function comingSoon() {
-  const today = dayStart();
-  const year = String(THIS_YEAR);
-  const [movies, series, popular] = await Promise.all([
-    catalogPages('movie', { list: 'year', genre: year }, 5),
-    catalogPages('tv', { list: 'year', genre: year }, 3),
-    catalogPages('tv', { list: 'top' }, 3),
-  ]);
-  const out = [];
-  const seen = new Set();
-  const push = (x) => !seen.has(x.id) && seen.add(x.id) && out.push(x);
-  for (const m of movies) {
-    const t = Date.parse(m.released);
-    if (t && t >= today) push({ ...m, date: m.released, kind: 'movie' });
-  }
-  for (const s of series) {
-    const t = Date.parse(s.released);
-    if (t && t >= today) push({ ...s, date: s.released, kind: 'series' });
-    else if (s.nextEp?.episode === 1) push({ ...s, date: s.nextEp.date, kind: 'season', season: s.nextEp.season });
-  }
-  for (const s of popular) {
-    if (s.nextEp?.episode === 1) push({ ...s, date: s.nextEp.date, kind: 'season', season: s.nextEp.season });
-  }
-  out.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
-  // Announced for this year but no date yet (no rating = not out).
-  const tba = movies.filter((m) => !m.released && !m.rating && m.background && !seen.has(m.id)).slice(0, 8);
-  return [...out, ...tba.map((m) => ({ ...m, date: null, kind: 'movie' }))];
-}
-
-/** Movies released in the last `days` days, newest first. */
-export async function newReleases(days = 75) {
-  const now = Date.now();
-  const from = now - days * 864e5;
-  const [a, b] = await Promise.all([
-    catalogPages('movie', { list: 'year', genre: String(THIS_YEAR) }, 4),
-    catalogPages('movie', { list: 'year', genre: String(THIS_YEAR - 1) }, 1),
-  ]);
-  return [...a, ...b]
-    .filter((m) => {
-      const t = Date.parse(m.released);
-      return t && t <= now && t >= from;
-    })
-    .sort((x, y) => Date.parse(y.released) - Date.parse(x.released));
-}
-
 /** True if a title hasn't been released yet. */
-export const isUpcoming = (it) => {
-  const d = it?.date || it?.released;
-  if (it?.kind === 'season') return Date.parse(it.date) > Date.now();
-  return d ? Date.parse(d) > Date.now() : it?.kind === 'movie' && it?.date === null;
-};
+export const isUpcoming = (it) => Boolean(it?.upcoming) && Date.parse(it.date) > Date.now();
 
-/** "Dec 18", "Friday", "Tomorrow", "Today" */
+/** "Jan 1", "Friday", "Tomorrow", "Today" */
 export function releaseLabel(date) {
   if (!date) return 'Coming soon';
   const t = new Date(date);
@@ -220,10 +353,10 @@ export function releaseLabel(date) {
   return t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-/** Netflix-style "97% Match" from the IMDb rating (+ a bump for liked genres). */
+/** Netflix-style "% Match" — based on genres you've liked (no ratings data). */
 export function matchScore(item, likedGenres) {
-  if (!item?.rating) return null;
-  let s = Math.round(38 + item.rating * 7);
-  if (likedGenres && item.genres?.some((g) => likedGenres.has(g))) s += 4;
-  return Math.max(55, Math.min(99, s));
+  if (!likedGenres || !likedGenres.size || !item?.genres?.length) return null;
+  const hits = item.genres.filter((g) => likedGenres.has(g)).length;
+  if (!hits) return null;
+  return Math.min(98, 80 + hits * 6);
 }
