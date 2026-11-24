@@ -127,10 +127,24 @@ export function vidsrcInfo(type, id, season, episode) {
 }
 
 const metahub = (kind, imdb) => (imdb ? `https://images.metahub.space/${kind}/medium/${imdb}/img` : null);
-const splitTitle = (t = '') => {
-  const m = String(t).match(/^(.*?)(?:\s+\(?(\d{4})\)?)?$/);
-  return { title: (m?.[1] || t).trim(), year: m?.[2] || '' };
-};
+// Feed titles look like "Iron Man 3 2013", "Show (2018)" or "Show (TV Mini Series 2025)".
+export function splitTitle(raw = '') {
+  let s = String(raw).trim();
+  let year = '';
+  const paren = s.match(/\s*\(([^()]*?)(\d{4})[^()]*\)?\s*$/);
+  if (paren) {
+    year = paren[2];
+    s = s.slice(0, paren.index);
+  } else {
+    const bare = s.match(/^(.+?)\s+(\d{4})$/);
+    if (bare) {
+      year = bare[2];
+      s = bare[1];
+    }
+  }
+  s = s.replace(/\s*\((?:TV|Mini|Video)[^)]*\)?\s*$/i, '').trim();
+  return { title: s || String(raw), year };
+}
 
 /** Recently added titles on VidSrc. kind: 'movies' | 'tvshows' | 'episodes' */
 export async function vidsrcLatest(kind, page = 1) {
